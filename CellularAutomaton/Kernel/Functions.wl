@@ -22,6 +22,8 @@ CellularAutomatonBoundedWidthSearch[init, steps, maxWidth] uses elementary defau
 CellularAutomatonActiveWidths::usage = "CellularAutomatonActiveWidths[k, r, init, steps] returns {maxWidth, finalWidth} for each rule in the (k,r) rule space.
 CellularAutomatonActiveWidths[init, steps] uses elementary defaults (k=2, r=1)."
 
+CellularAutomatonWidthRatioSearch::usage = "CellularAutomatonWidthRatioSearch[inits, steps, ratio, {k, r}, ruleRange, maxWidth] finds rules where the final active width equals ratio \[Times] input width for ALL initial conditions in inits. Fully parallelized.\nCellularAutomatonWidthRatioSearch[inits, steps, ratio, {k, r}] searches all rules.\nCellularAutomatonWidthRatioSearch[inits, steps, ratio] uses elementary defaults."
+
 CellularAutomatonPlot
 
 
@@ -87,6 +89,7 @@ RuleCountRust := functions["rule_count_wl"]
 CAEvolutionTableParallelRust := functions["ca_evolution_table_parallel_wl"]
 FindBoundedWidthRulesRust := functions["find_bounded_width_rules_wl"]
 MaxActiveWidthsParallelRust := functions["max_active_widths_parallel_wl"]
+FindWidthRatioRulesRust := functions["find_width_ratio_rules_wl"]
 
 (* Helper: convert WL list to DataStore for WLL Vec<T> arguments *)
 toDS[list_List] := Developer`DataStore @@ list
@@ -180,6 +183,28 @@ CellularAutomatonActiveWidths[init_List, steps_Integer] :=
 
 CellularAutomatonActiveWidths[k_Integer, r_Integer, init_List, steps_Integer, minRule_Integer ;; maxRule_Integer] :=
     Partition[fromDS @ MaxActiveWidthsParallelRust[minRule, maxRule, k, r, toDS[init], steps], 2]
+
+
+(* CellularAutomatonWidthRatioSearch: parallel multi-init width ratio search *)
+
+CellularAutomatonWidthRatioSearch[inits:{__List}, steps_Integer, ratio_?NumericQ, {k_Integer, r_Integer},
+        minRule_Integer ;; maxRule_Integer, maxWidth_Integer] :=
+    With[{rat = Rationalize[ratio], flat = Flatten[inits], n = Length[inits]},
+        fromDS @ FindWidthRatioRulesRust[minRule, maxRule, k, r, toDS[flat], n, steps,
+            Numerator[rat], Denominator[rat], maxWidth]
+    ]
+
+CellularAutomatonWidthRatioSearch[inits:{__List}, steps_Integer, ratio_, {k_Integer, r_Integer},
+        minRule_Integer ;; maxRule_Integer] :=
+    CellularAutomatonWidthRatioSearch[inits, steps, ratio, {k, r}, minRule ;; maxRule,
+        Max[Length /@ inits]]
+
+CellularAutomatonWidthRatioSearch[inits:{__List}, steps_Integer, ratio_, {k_Integer, r_Integer}] :=
+    CellularAutomatonWidthRatioSearch[inits, steps, ratio, {k, r},
+        0 ;; CellularAutomatonRuleCount[k, r] - 1]
+
+CellularAutomatonWidthRatioSearch[inits:{__List}, steps_Integer, ratio_] :=
+    CellularAutomatonWidthRatioSearch[inits, steps, ratio, {2, 1}]
 
 
 End[]

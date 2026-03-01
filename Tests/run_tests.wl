@@ -178,6 +178,16 @@ With[{widths = CellularAutomatonActiveWidths[CenterArray[{1}, 21], 10]},
     runTestQ["Rule 30 max width > 1", widths[[31, 1]] > 1]; (* rule 30 is index 31 in 1-indexed *)
 ];
 
+print[""];
+print["--- CellularAutomatonWidthRatioSearch ---"];
+
+With[{inits = {CenterArray[{1}, 41], CenterArray[{1, 2, 1}, 41]}},
+    With[{doublers = CellularAutomatonWidthRatioSearch[inits, 15, 2, {3, 1}, 54240 ;; 54240, 15]},
+        runTestQ["Width ratio search returns list", ListQ[doublers]];
+        runTestQ["Rule 54240 is a width doubler", MemberQ[doublers, 54240]];
+    ];
+];
+
 (* ---- Summary ---- *)
 print[""];
 print["=== Results ==="];

@@ -145,6 +145,43 @@ pub fn max_active_widths_parallel(
         .collect()
 }
 
+/// Find rules where the final active width equals `ratio * input_active_width`
+/// for ALL provided initial conditions. Fully parallelized with rayon.
+/// `initials` is a slice of initial conditions (each a CAState).
+/// `ratio_num` / `ratio_den` encodes the ratio as a fraction to allow integer checking.
+/// e.g. ratio_num=2, ratio_den=1 checks for exact doubling.
+pub fn find_width_ratio_rules(
+    min_rule: u64,
+    max_rule: u64,
+    k: u32,
+    r: u32,
+    initials: &[CAState],
+    steps: usize,
+    ratio_num: u64,
+    ratio_den: u64,
+    max_width: usize,
+) -> Vec<u64> {
+    let initials: Vec<_> = initials.to_vec();
+    let input_widths: Vec<usize> = initials.iter().map(|s| s.active_width()).collect();
+
+    (min_rule..=max_rule)
+        .into_par_iter()
+        .filter(|&rule_number| {
+            let ca = CellularAutomaton::from_rule_number(rule_number, k, r);
+            initials.iter().zip(input_widths.iter()).all(|(init, &iw)| {
+                // Quick bounded-width check first (early exit)
+                if !ca.is_bounded_width(init, steps, max_width) {
+                    return false;
+                }
+                let final_state = ca.evolve_final(init, steps);
+                let fw = final_state.active_width();
+                // Check: fw * ratio_den == iw * ratio_num
+                (fw as u64) * ratio_den == (iw as u64) * ratio_num
+            })
+        })
+        .collect()
+}
+
 // =============================================================================
 // Wolfram LibraryLink wrappers
 // =============================================================================
@@ -266,6 +303,39 @@ pub fn max_active_widths_parallel_wl(
     max_active_widths_parallel(min_rule, max_rule, k, r, &cells, steps as usize)
 }
 
+/// Find rules whose final active width = (ratio_num/ratio_den) * input width
+/// for ALL provided initial conditions. Fully parallelized.
+/// `flat_inits` is a flat list of all initial conditions concatenated.
+/// `num_inits` tells how many initial conditions are packed.
+/// tape_width = len(flat_inits) / num_inits.
+#[wll::export]
+pub fn find_width_ratio_rules_wl(
+    min_rule: u64,
+    max_rule: u64,
+    k: u32,
+    r: u32,
+    flat_inits: Vec<i32>,
+    num_inits: u64,
+    steps: u64,
+    ratio_num: u64,
+    ratio_den: u64,
+    max_width: u64,
+) -> Vec<u64> {
+    let num = num_inits as usize;
+    let tape_width = flat_inits.len() / num;
+    let initials: Vec<CAState> = flat_inits
+        .chunks(tape_width)
+        .map(|chunk| {
+            let cells: Vec<u8> = chunk.iter().map(|&c| c as u8).collect();
+            CAState::new(cells, k)
+        })
+        .collect();
+    find_width_ratio_rules(
+        min_rule, max_rule, k, r, &initials, steps as usize,
+        ratio_num, ratio_den, max_width as usize,
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -313,5 +383,26 @@ mod tests {
         // Should return [max_width, final_width]
         assert_eq!(widths.len(), 2);
         assert!(widths[0] > 0); // Rule 30 expands
+    }
+
+    #[test]
+    fn test_find_width_ratio_rules() {
+        // k=3, r=1: search a small range for width-doublers
+        let w = 41;
+        let mut init1 = vec![0u8; w];
+        init1[w / 2] = 1;
+        let mut init3 = vec![0u8; w];
+        init3[w / 2 - 1] = 1;
+        init3[w / 2] = 2;
+        init3[w / 2 + 1] = 1;
+
+        let initials = vec![
+            CAState::new(init1, 3),
+            CAState::new(init3, 3),
+        ];
+
+        // Search a range that contains known doublers (54240)
+        let doublers = find_width_ratio_rules(54240, 54240, 3, 1, &initials, 15, 2, 1, 15);
+        assert!(doublers.contains(&54240), "doublers: {:?}", doublers);
     }
 }
