@@ -206,12 +206,97 @@ impl CellularAutomaton {
     /// Check if the evolution has bounded width: the active region
     /// never exceeds `max_allowed_width` across `steps` generations.
     pub fn is_bounded_width(&self, initial: &CAState, steps: usize, max_allowed_width: usize) -> bool {
-        let mut current = initial.clone();
-        for _ in 0..steps {
-            current = self.step(&current);
-            if current.active_width() > max_allowed_width {
+        self.is_bounded_width_fast(&initial.cells, steps, max_allowed_width)
+    }
+
+    /// Optimized bounded-width check using stack arrays, double-buffering,
+    /// and boundary tracking. No heap allocations in the hot loop.
+    pub fn is_bounded_width_fast(&self, initial_cells: &[u8], steps: usize, max_allowed_width: usize) -> bool {
+        const MAX_TAPE: usize = 64;
+        let width = initial_cells.len().min(MAX_TAPE);
+        
+        let mut buf_a = [0u8; MAX_TAPE];
+        let mut buf_b = [0u8; MAX_TAPE];
+        buf_a[..width].copy_from_slice(&initial_cells[..width]);
+
+        // Find initial active boundaries
+        let mut left = width;
+        let mut right = 0usize;
+        for i in 0..width {
+            if buf_a[i] != 0 {
+                if i < left { left = i; }
+                if i > right { right = i; }
+            }
+        }
+        if left > right {
+            return true; // all zeros
+        }
+
+        let r = self.r as usize;
+        let k = self.k as usize;
+        let rule_table = &self.rule_table;
+
+        // Use raw pointers for double-buffering without borrow issues
+        let ptr_a = buf_a.as_mut_ptr();
+        let ptr_b = buf_b.as_mut_ptr();
+        let mut use_a = true;
+
+        for _step in 0..steps {
+            let (src, dst) = if use_a {
+                (ptr_a, ptr_b)
+            } else {
+                (ptr_b, ptr_a)
+            };
+
+            // Expand the evaluation window by r (light cone), clamped to tape
+            let eval_left = if left >= r + 1 { left - r - 1 } else { 0 };
+            let eval_right = if right + r + 1 < width { right + r + 1 } else { width - 1 };
+
+            // Zero the margin outside the eval window in dst
+            unsafe {
+                for i in eval_left..=eval_right {
+                    // Compute neighborhood index inline for r=1
+                    let idx = if r == 1 {
+                        let l = if i == 0 { width - 1 } else { i - 1 };
+                        let c = i;
+                        let rr = if i + 1 >= width { 0 } else { i + 1 };
+                        (*src.add(l)) as usize * k * k + (*src.add(c)) as usize * k + (*src.add(rr)) as usize
+                    } else {
+                        let mut idx = 0usize;
+                        for offset in 0..(2 * r + 1) {
+                            let neighbor_pos = (i + width - r + offset) % width;
+                            idx = idx * k + (*src.add(neighbor_pos)) as usize;
+                        }
+                        idx
+                    };
+                    *dst.add(i) = rule_table[idx];
+                }
+            }
+
+            // Update active boundaries from dst
+            let mut new_left = width;
+            let mut new_right = 0usize;
+            unsafe {
+                for i in eval_left..=eval_right {
+                    if *dst.add(i) != 0 {
+                        if i < new_left { new_left = i; }
+                        if i > new_right { new_right = i; }
+                    }
+                }
+            }
+
+            if new_left > new_right {
+                return true; // died out
+            }
+
+            let active_w = new_right - new_left + 1;
+            if active_w > max_allowed_width {
                 return false;
             }
+
+            left = new_left;
+            right = new_right;
+            use_a = !use_a;
         }
         true
     }
