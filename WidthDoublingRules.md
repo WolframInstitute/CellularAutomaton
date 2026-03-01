@@ -1,7 +1,11 @@
 # Width-Doubling 3-Color Cellular Automata
 
-Three-color (k=3, r=1) CA rules that double the width of their input, inspired by
-[NKS p. 833](https://www.wolframscience.com/nks/p833--intelligence-in-the-universe/).
+Three-color (k=3, r=1) CA rules that double the width of their input pattern,
+from [NKS p. 833](https://www.wolframscience.com/nks/p833--intelligence-in-the-universe/).
+
+These are 4277 rules (out of 7,625,597,484,987) found by exhaustive search where
+the CA evolves a finite input pattern into a doubled-width output pattern. The number
+of steps scales roughly linearly with input width.
 
 ## Setup
 
@@ -10,145 +14,118 @@ PacletInstall["https://www.wolframcloud.com/obj/nikm/CellularAutomaton.paclet", 
 Get["WolframInstitute`CellularAutomaton`"]
 ```
 
-## Parallel Width-Ratio Search
+## The Doubling Rules Dataset
 
-`CellularAutomatonWidthRatioSearch` tests every rule against multiple initial conditions in parallel (Rust + rayon), with bounded-width early exit. No sequential WL filtering needed.
+The Wolfram Data Repository provides a curated subset of these rules.
 
 ```wolfram
-(* Find all k=3 rules in 0..999999 that exactly double width for inputs of width 1 AND width 3 *)
-inits = {CenterArray[{1}, 61], CenterArray[{1, 2, 1}, 61]};
-AbsoluteTiming[
-  doublers = CellularAutomatonWidthRatioSearch[inits, 30, 2, {3, 1}, 0 ;; 999999, 15]
-]
+doublingRules = ResourceData["Three-Color Cellular Automaton Rules that Double Their Input"];
+Length[doublingRules]
 ```
 
-```wolfram
-Length[doublers]
-```
+## Visualizing Doubling Rules
 
-### Deeper search
+### Single cell input
 
-```wolfram
-(* Extend to 5M rules *)
-AbsoluteTiming[
-  doublers5M = CellularAutomatonWidthRatioSearch[inits, 30, 2, {3, 1}, 0 ;; 4999999, 15]
-]
-Length[doublers5M]
-```
-
-### Triple-verified doublers
-
-Adding a width-5 input as a third check eliminates false positives.
+Each rule evolves a single non-zero cell. The pattern grows obliquely,
+with the non-trivial output region encoding a doubled-width pattern.
 
 ```wolfram
-inits3 = {CenterArray[{1}, 61], CenterArray[{1, 2, 1}, 61], CenterArray[{1, 2, 1, 2, 1}, 61]};
-AbsoluteTiming[
-  verified = CellularAutomatonWidthRatioSearch[inits3, 30, 2, {3, 1}, 0 ;; 999999, 15]
-]
-Length[verified]
-```
-
-## Visualizing Discovered Doublers
-
-### Single cell input (width 1 → 2)
-
-```wolfram
-(* Use first 6 doublers found *)
-show = Take[doublers, UpTo[6]];
+show = Take[doublingRules, 12];
 Grid[Partition[
   Table[
     Labeled[
-      ArrayPlot[CellularAutomaton[{r, 3, 1}, {CenterArray[{1}, 41], 0}, 20],
-        ColorRules -> {0 -> White, 1 -> Hue[0.6], 2 -> Hue[0.05]},
-        ImageSize -> 160, Frame -> False],
-      Style["Rule " <> ToString[r], 10]],
+      ArrayPlot[CellularAutomaton[{r, 3, 1}, {{1}, 0}, {30, All}],
+        ColorRules -> {0 -> White, 1 -> GrayLevel[0.3], 2 -> GrayLevel[0.65]},
+        ImageSize -> 140, Frame -> False, PixelConstrained -> True],
+      Style[r, 8]],
     {r, show}],
-  3], Spacings -> 1]
+  4], Spacings -> 1]
 ```
 
-### Width-3 input ({1,2,1} → width 6)
+### Multi-cell input
 
 ```wolfram
 Grid[Partition[
   Table[
     Labeled[
-      ArrayPlot[CellularAutomaton[{r, 3, 1}, {CenterArray[{1, 2, 1}, 41], 0}, 20],
-        ColorRules -> {0 -> White, 1 -> Hue[0.6], 2 -> Hue[0.05]},
-        ImageSize -> 160, Frame -> False],
-      Style["Rule " <> ToString[r], 10]],
-    {r, show}],
-  3], Spacings -> 1]
+      ArrayPlot[CellularAutomaton[{r, 3, 1}, {{1, 2, 1}, 0}, {30, All}],
+        ColorRules -> {0 -> White, 1 -> GrayLevel[0.3], 2 -> GrayLevel[0.65]},
+        ImageSize -> 140, Frame -> False, PixelConstrained -> True],
+      Style[r, 8]],
+    {r, Take[doublingRules, 12]}],
+  4], Spacings -> 1]
 ```
 
-### Width-5 input ({1,2,1,2,1} → width 10)
+## How Doubling Works
+
+The input pattern sits at the top. As the CA evolves, the active region expands
+and eventually stabilizes. The non-trivial portion of the spacetime has width 2× the input.
 
 ```wolfram
-Grid[Partition[
+rule = First[doublingRules];
+GraphicsRow[
   Table[
     Labeled[
-      ArrayPlot[CellularAutomaton[{r, 3, 1}, {CenterArray[{1, 2, 1, 2, 1}, 41], 0}, 20],
-        ColorRules -> {0 -> White, 1 -> Hue[0.6], 2 -> Hue[0.05]},
-        ImageSize -> 160, Frame -> False],
-      Style["Rule " <> ToString[r], 10]],
-    {r, show}],
-  3], Spacings -> 1]
+      ArrayPlot[CellularAutomaton[{rule, 3, 1}, {in, 0}, {50, All}],
+        ColorRules -> {0 -> White, 1 -> GrayLevel[0.3], 2 -> GrayLevel[0.65]},
+        ImageSize -> 200, Frame -> False],
+      Column[{Style["Rule " <> ToString[rule], 10],
+        Style["Input: " <> ToString[in], 9]}, Alignment -> Center], Top],
+    {in, {{1}, {1, 2}, {1, 2, 1}, {1, 2, 1, 2, 1}}}],
+  Spacings -> 1]
 ```
 
-## Detailed View
-
-```wolfram
-(* Pick the first doubler for a detailed view *)
-rule = First[doublers];
-GraphicsColumn[{
-  Labeled[
-    ArrayPlot[CellularAutomaton[{rule, 3, 1}, {CenterArray[{1}, 81], 0}, 40],
-      ColorRules -> {0 -> White, 1 -> Hue[0.6], 2 -> Hue[0.05]},
-      ImageSize -> 500],
-    Style["Width 1 \[Rule] 2", 14, Bold], Top],
-  Labeled[
-    ArrayPlot[CellularAutomaton[{rule, 3, 1}, {CenterArray[{1, 2, 1}, 81], 0}, 40],
-      ColorRules -> {0 -> White, 1 -> Hue[0.6], 2 -> Hue[0.05]},
-      ImageSize -> 500],
-    Style["Width 3 \[Rule] 6", 14, Bold], Top],
-  Labeled[
-    ArrayPlot[CellularAutomaton[{rule, 3, 1}, {CenterArray[{1, 2, 1, 2, 1}, 81], 0}, 40],
-      ColorRules -> {0 -> White, 1 -> Hue[0.6], 2 -> Hue[0.05]},
-      ImageSize -> 500],
-    Style["Width 5 \[Rule] 10", 14, Bold], Top]
-}, Spacings -> 1]
-```
-
-## Width Progression
-
-Track how the active width evolves step-by-step.
+## Active Width Analysis
 
 ```wolfram
 activeWidth[cells_List] := With[{pos = Position[cells, _?(# != 0 &)]},
-  If[pos === {}, 0, Last[pos][[1]] - First[pos][[1]] + 1]
-];
+  If[pos === {}, 0, Last[pos][[1]] - First[pos][[1]] + 1]];
 
-widthTrace[rule_, init_, nSteps_] := Table[
-  activeWidth[CellularAutomaton[{rule, 3, 1}, {init, 0}, t][[-1]]],
-  {t, 0, nSteps}
-];
-
-ListLinePlot[
-  Table[widthTrace[r, CenterArray[{1, 2, 1}, 81], 40], {r, Take[doublers, UpTo[5]]}],
-  PlotLegends -> ("Rule " <> ToString[#] & /@ Take[doublers, UpTo[5]]),
-  AxesLabel -> {"Step", "Active width"},
-  PlotLabel -> "Width evolution from {1,2,1} input",
-  PlotStyle -> Thick, ImageSize -> 500]
+(* For each rule, compute the final active width from single cell input *)
+widths = Table[
+  activeWidth[CellularAutomaton[{r, 3, 1}, {{1}, 0}, 50]],
+  {r, doublingRules}];
+Histogram[widths, PlotLabel -> "Final active width from single cell (50 steps)",
+  AxesLabel -> {"Width", "Count"}, ImageSize -> 500]
 ```
 
-## Searching for Other Ratios
+## Comparing Doubling Styles
 
-The same function works for any width ratio — tripling, halving, etc.
+Different rules achieve doubling through different internal dynamics.
 
 ```wolfram
-(* Width-tripling rules *)
-inits = {CenterArray[{1}, 61], CenterArray[{1, 2, 1}, 61]};
+(* Pick 6 visually distinct rules *)
+samples = doublingRules[[{1, 10, 50, 100, 150, 199}]];
+Grid[Partition[
+  Table[
+    Labeled[
+      ArrayPlot[CellularAutomaton[{r, 3, 1}, {{1, 2, 1, 2, 1}, 0}, {80, All}],
+        ColorRules -> {0 -> White, 1 -> GrayLevel[0.3], 2 -> GrayLevel[0.65]},
+        ImageSize -> 250, Frame -> False],
+      Style["Rule " <> ToString[r], 10]],
+    {r, samples}],
+  3], Spacings -> 1]
+```
+
+## Searching for New Doublers with CASearch
+
+Our Rust-powered search can scan for rules with bounded active width.
+This is a necessary (but not sufficient) condition for doubling.
+
+```wolfram
+(* Find bounded-width k=3 rules in a range *)
 AbsoluteTiming[
-  triplers = CellularAutomatonWidthRatioSearch[inits, 30, 3, {3, 1}, 0 ;; 999999, 20]
+  bounded = CellularAutomatonBoundedWidthSearch[
+    CenterArray[{1}, 61], 30, 9, {3, 1}, 0 ;; 999999];
+  Length[bounded]
 ]
-Length[triplers]
+```
+
+```wolfram
+(* Check overlap with known doublers *)
+knownInRange = Select[doublingRules, # <= 999999 &];
+Print["Known doublers in range: ", Length[knownInRange]];
+Print["Bounded-width rules found: ", Length[bounded]];
+Print["Overlap: ", Length[Intersection[bounded, knownInRange]]];
 ```
