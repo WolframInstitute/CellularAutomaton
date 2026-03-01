@@ -6,8 +6,8 @@ Three-color (k=3, r=1) CA rules that double the width of their input, inspired b
 ## Setup
 
 ```wolfram
-PacletInstall["https://www.wolframcloud.com/obj/nikm/CellularAutomaton.paclet"]
-Needs["WolframInstitute`CellularAutomaton`"]
+PacletInstall["https://www.wolframcloud.com/obj/nikm/CellularAutomaton.paclet", ForceVersionInstall -> True]
+Get["WolframInstitute`CellularAutomaton`"]
 ```
 
 ## Parallel Width-Ratio Search

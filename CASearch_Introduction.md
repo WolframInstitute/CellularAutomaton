@@ -5,8 +5,8 @@ This notebook demonstrates the functionality of the **CellularAutomaton** paclet
 ## Setup
 
 ```wolfram
-PacletInstall["https://www.wolframcloud.com/obj/nikm/CellularAutomaton.paclet"]
-Needs["WolframInstitute`CellularAutomaton`"]
+PacletInstall["https://www.wolframcloud.com/obj/nikm/CellularAutomaton.paclet", ForceVersionInstall -> True]
+Get["WolframInstitute`CellularAutomaton`"]
 ```
 
 ## Rule Count
