@@ -108,24 +108,61 @@ Grid[Partition[
   3], Spacings -> 1]
 ```
 
-## Searching for New Doublers with CASearch
+## Recovering NKS Doublers with CASearch
 
-Our Rust-powered search can scan for rules with bounded active width.
-This is a necessary (but not sufficient) condition for doubling.
+Our Rust-powered `CellularAutomatonBoundedWidthSearch` can recover known NKS
+doubling rules by searching targeted ranges. The bounded-width condition is
+necessary (but not sufficient) for doubling.
+
+### Targeted search around known doublers
 
 ```wolfram
-(* Find bounded-width k=3 rules in a range *)
+(* Search a 1M-wide window around the first known doubler *)
 AbsoluteTiming[
-  bounded = CellularAutomatonBoundedWidthSearch[
-    CenterArray[{1}, 61], 30, 9, {3, 1}, 0 ;; 999999];
-  Length[bounded]
+  bounded = CellularAutomatonBoundedWidthSearch[CenterArray[{1}, 41], 20, 5, {3, 1},
+    1919606431 ;; 1920606431]
 ]
+(* Check: does it contain the known doubler? *)
+MemberQ[bounded, 1920106431]
 ```
 
+### Finding clusters of doublers
+
+Several NKS doubling rules are clustered near rule 43,689,000,000.
+
 ```wolfram
-(* Check overlap with known doublers *)
-knownInRange = Select[doublingRules, # <= 999999 &];
-Print["Known doublers in range: ", Length[knownInRange]];
-Print["Bounded-width rules found: ", Length[bounded]];
-Print["Overlap: ", Length[Intersection[bounded, knownInRange]]];
+AbsoluteTiming[
+  bounded2 = CellularAutomatonBoundedWidthSearch[CenterArray[{1}, 41], 20, 5, {3, 1},
+    43689000000 ;; 43690000000]
+]
+Intersection[bounded2, doublingRules]
+(* Expected: {43689775437, 43689781998, 43689834486} *)
+```
+
+### Recovering more doublers across the rule space
+
+```wolfram
+targets = {144892600000 ;; 144892700000, 837428000000 ;; 837429000000,
+  4510289000000 ;; 4510290000000, 6463950000000 ;; 6463951000000};
+AbsoluteTiming[
+  found = Flatten @ Table[
+    With[{b = CellularAutomatonBoundedWidthSearch[CenterArray[{1}, 41], 20, 5, {3, 1}, rng]},
+      Intersection[b, doublingRules]],
+    {rng, targets}]
+]
+found
+```
+
+### Visualizing discovered doublers
+
+```wolfram
+Grid[Partition[
+  Table[
+    Labeled[
+      ArrayPlot[CellularAutomaton[{r, 3, 1}, {{1}, 0}, {30, All}],
+        ColorRules -> {0 -> White, 1 -> GrayLevel[0.3], 2 -> GrayLevel[0.65]},
+        ImageSize -> 180, Frame -> False],
+      Style[r, 9]],
+    {r, found}],
+  3], Spacings -> 1]
 ```
