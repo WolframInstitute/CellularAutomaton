@@ -1,0 +1,10 @@
+/target
+*.paclet
+.DS_Store
+CellularAutomaton/Binaries/*.dylib
+CellularAutomaton/Binaries/*.rlib
+CellularAutomaton/Binaries/*.wxf
+CellularAutomaton/Binaries/*.dll
+CellularAutomaton/Binaries/*.so
+*.nb
+Cargo.lock

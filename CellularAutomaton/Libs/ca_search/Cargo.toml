@@ -1,0 +1,13 @@
+[package]
+name = "ca_search"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+rayon = "1.8"
+wolfram-library-link = { git = "https://github.com/sw1sh/wolfram-library-link-rs", branch = "feature/optional_wstp" }
+
+[lib]
+name = "ca_search"
+crate-type = ["lib", "cdylib"]
+path = "src/lib.rs"
