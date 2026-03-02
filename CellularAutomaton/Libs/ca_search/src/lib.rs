@@ -383,6 +383,36 @@ pub fn find_width_ratio_rules(
         .collect()
 }
 
+/// Find rules where the final active width equals exactly `target_width`.
+/// Uses bounded-width early bailout for performance.
+/// Supports multiple initial conditions: ALL must produce the target width.
+pub fn find_exact_width_rules(
+    min_rule: u64,
+    max_rule: u64,
+    k: u32,
+    r: u32,
+    initials: &[CAState],
+    steps: usize,
+    target_width: usize,
+) -> Vec<u64> {
+    let initials: Vec<_> = initials.to_vec();
+
+    (min_rule..=max_rule)
+        .into_par_iter()
+        .filter(|&rule_number| {
+            let ca = CellularAutomaton::from_rule_number(rule_number, k, r);
+            initials.iter().all(|init| {
+                // Early exit if width exceeds target (can't be exact match)
+                if !ca.is_bounded_width(init, steps, target_width + 2) {
+                    return false;
+                }
+                let final_state = ca.evolve_final(init, steps);
+                final_state.active_width() == target_width
+            })
+        })
+        .collect()
+}
+
 // =============================================================================
 // Wolfram LibraryLink wrappers
 // =============================================================================
@@ -534,6 +564,35 @@ pub fn find_width_ratio_rules_wl(
     find_width_ratio_rules(
         min_rule, max_rule, k, r, &initials, steps as usize,
         ratio_num, ratio_den, max_width as usize,
+    )
+}
+
+/// Find rules where the final active width = target_width for ALL inits.
+/// `flat_inits` is a flat list of all initial conditions concatenated.
+/// `num_inits` tells how many are packed.
+#[wll::export]
+pub fn find_exact_width_rules_wl(
+    min_rule: u64,
+    max_rule: u64,
+    k: u32,
+    r: u32,
+    flat_inits: Vec<i32>,
+    num_inits: u64,
+    steps: u64,
+    target_width: u64,
+) -> Vec<u64> {
+    let num = num_inits as usize;
+    let tape_width = flat_inits.len() / num;
+    let initials: Vec<CAState> = flat_inits
+        .chunks(tape_width)
+        .map(|chunk| {
+            let cells: Vec<u8> = chunk.iter().map(|&c| c as u8).collect();
+            CAState::new(cells, k)
+        })
+        .collect();
+    find_exact_width_rules(
+        min_rule, max_rule, k, r, &initials, steps as usize,
+        target_width as usize,
     )
 }
 
