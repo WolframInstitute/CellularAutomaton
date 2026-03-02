@@ -1,179 +1,127 @@
 # CellularAutomaton Search
 
-Rust-accelerated search tools for 1D cellular automata, packaged as a Wolfram Language paclet.
+Rust + Metal GPU accelerated search tools for 1D cellular automata. Wolfram Language paclet.
 
-## Quick Start
+## Install
 
 ```wolfram
-PacletDirectoryLoad["CellularAutomaton"]
+PacletInstall["https://www.wolframcloud.com/obj/nikm/CellularAutomaton.paclet"]
 Needs["WolframInstitute`CellularAutomaton`"]
 ```
 
-## Building
-
-### Requirements
-
-- Wolfram Language 14.3+
-- Rust toolchain (`rustup`)
-- Cross-compilation targets (for multi-platform builds)
-
-### Development Build (local only)
-
-Build from Wolfram Language — this compiles the Rust code and copies the resulting
-library into `CellularAutomaton/Binaries/`:
-
-```wolfram
-<< ExtensionCargo`
-PacletDirectoryLoad["CellularAutomaton"]
-CargoBuild[PacletObject["WolframInstitute/CellularAutomaton"]]
-```
-
-> **Important**: After rebuilding, restart the kernel before loading the paclet.
-> The Rust function table is cached on first load.
->
-> Never run `cargo build` directly inside the paclet folder — it creates a
-> `target/` directory that pollutes the paclet structure.
-
-### Cross-Platform Build
-
-```bash
-./build_all_targets.sh
-```
-
-Builds for: `MacOSX-x86-64`, `MacOSX-ARM64`, `Linux-x86-64`, `Linux-ARM64`, `Windows-x86-64`.
-
-### Full Paclet Package
-
-```bash
-wolframscript -f build.wl
-```
-
-This runs `CargoBuild`, collects binaries into `CellularAutomaton/Binaries/`, and creates a `.paclet` archive.
-
-## API Reference
+## API
 
 ### `CellularAutomatonSearch`
 
-Find CA rules matching a target pattern or output width.
+Find rules matching a target pattern or output width.
 
 ```wolfram
-(* Find rules whose output matches a target array *)
-CellularAutomatonSearch[init, steps, targetArray]
+(* Rules whose output matches a target array *)
 CellularAutomatonSearch[init, steps, targetArray, {k, r}]
-CellularAutomatonSearch[init, steps, targetArray, {k, r}, minRule ;; maxRule]
 
-(* Find rules whose output has exact active width *)
-CellularAutomatonSearch[init, steps, targetWidth]
+(* Rules whose output has exact active width *)
 CellularAutomatonSearch[init, steps, targetWidth, {k, r}]
-CellularAutomatonSearch[init, steps, targetWidth, {k, r}, minRule ;; maxRule]
 
 (* Multiple inits — ALL must produce targetWidth *)
 CellularAutomatonSearch[{init1, init2, ...}, steps, targetWidth, {k, r}]
-```
 
-**Examples:**
-
-```wolfram
-(* All elementary rules producing width 5 from single cell after 10 steps *)
-CellularAutomatonSearch[CenterArray[{1}, 21], 10, 5]
-
-(* k=3, r=1 rules producing exact target from {1,2} input *)
-init = CenterArray[{1, 2}, 31];
-CellularAutomatonSearch[init, 30, {0,0,0,...,1,1,1,1,...,0,0,0}, {3, 1}]
-
-(* Search a rule range *)
-CellularAutomatonSearch[init, 30, 4, {3, 1}, 1920106430 ;; 1920106432]
-```
-
-### `CellularAutomatonBoundedWidthSearch`
-
-Find rules where the active region never exceeds a maximum width.
-
-```wolfram
-CellularAutomatonBoundedWidthSearch[init, steps, maxWidth]
-CellularAutomatonBoundedWidthSearch[init, steps, maxWidth, {k, r}]
-CellularAutomatonBoundedWidthSearch[init, steps, maxWidth, {k, r}, minRule ;; maxRule]
+(* Rule range *)
+CellularAutomatonSearch[init, steps, target, {k, r}, minRule ;; maxRule]
 ```
 
 ### `CellularAutomatonWidthRatioSearch`
 
-Find rules where the output width is a fixed ratio of the input width, across multiple initial conditions.
+Find rules where output width = ratio × input width for ALL initial conditions.
 
 ```wolfram
-CellularAutomatonWidthRatioSearch[{init1, init2, ...}, steps, ratio, {k, r}]
-CellularAutomatonWidthRatioSearch[{init1, init2, ...}, steps, ratio, {k, r}, minRule ;; maxRule]
+CellularAutomatonWidthRatioSearch[inits, steps, ratio, {k, r}]
+
+(* Sieve: filter a pre-existing list of candidate rules *)
+CellularAutomatonWidthRatioSearch[inits, steps, ratio, {k, r}, candidateRules]
 ```
 
-**Example — find width-doubling rules (NKS p. 833):**
+**Width-doubling rules (NKS p. 833):**
 
 ```wolfram
-inits = Table[CenterArray[Append[ConstantArray[1, n], 2], 31], {n, 0, 6}];
-CellularAutomatonWidthRatioSearch[inits, 50, 2, {3, 1}]
+(* GPU-accelerated: 4288 doublers in ~12s *)
+inits = Table[Join[ConstantArray[1, n], {2}], {n, 0, 6}];
+CellularAutomatonWidthRatioSearch[inits, 200, 2, {3, 1}]
+
+(* NKS-faithful 30 tests → exact 4277 count *)
+inits30 = Table[Join[ConstantArray[1, n], {2}], {n, 0, 29}];
+CellularAutomatonWidthRatioSearch[inits30, 200, 2, {3, 1}]
+
+(* Multi-stage sieve *)
+coarse = CellularAutomatonWidthRatioSearch[inits7, 200, 2, {3, 1}]
+refined = CellularAutomatonWidthRatioSearch[inits30, 200, 2, {3, 1}, coarse]
 ```
 
-### `CellularAutomatonOutput`
+### `CellularAutomatonBoundedWidthSearch`
 
-Run a CA and return the final state.
+Rules where the active region never exceeds a maximum width.
 
 ```wolfram
-CellularAutomatonOutput[rule, init, steps]
-CellularAutomatonOutput[rule, k, r, init, steps]
+CellularAutomatonBoundedWidthSearch[init, steps, maxWidth, {k, r}]
 ```
 
-### `CellularAutomatonEvolution`
-
-Return the full spacetime evolution as a matrix.
+### `CellularAutomatonOutput` / `CellularAutomatonEvolution`
 
 ```wolfram
-CellularAutomatonEvolution[rule, init, steps]
-CellularAutomatonEvolution[rule, k, r, init, steps]
+CellularAutomatonOutput[rule, k, r, init, steps]       (* final state *)
+CellularAutomatonEvolution[rule, k, r, init, steps]     (* full spacetime *)
 ```
 
 ### `CellularAutomatonActiveWidths`
 
-Compute `{maxWidth, finalWidth}` for each rule in a range.
+`{maxWidth, finalWidth}` for each rule.
 
 ```wolfram
 CellularAutomatonActiveWidths[k, r, init, steps]
-CellularAutomatonActiveWidths[k, r, init, steps, minRule ;; maxRule]
 ```
 
 ### `CellularAutomatonRuleCount`
 
-Total number of rules for a given `{k, r}`.
-
 ```wolfram
 CellularAutomatonRuleCount[3, 1]  (* 7625597484987 *)
+```
+
+## Building
+
+**Requirements:** Wolfram Language 14.3+, Rust toolchain, cross-compilation targets.
+
+```bash
+# Build all platforms
+./build_all_targets.sh
+
+# Package + deploy paclet
+./build.wls
 ```
 
 ## Project Structure
 
 ```
 CASearch/
-├── CellularAutomaton/          # Wolfram paclet
-│   ├── PacletInfo.wl           # Paclet metadata
-│   ├── Kernel/Functions.wl     # WL API definitions
-│   ├── Libs/ca_search/         # Rust source
-│   │   ├── Cargo.toml
-│   │   └── src/
-│   │       ├── lib.rs          # Core functions + WLL exports
-│   │       └── models.rs       # CAState, CellularAutomaton structs
-│   └── Binaries/               # Built dylibs + manifest (auto-generated)
-├── gpu_search/                 # Metal GPU accelerated search
-│   ├── ca_search.metal         # Metal compute shader
-│   └── src/main.rs             # GPU search driver
-├── build.wl                    # Full paclet build + deploy
-├── build_all_targets.sh        # Cross-platform Rust builds
+├── CellularAutomaton/              # Wolfram paclet
+│   ├── PacletInfo.wl
+│   ├── Kernel/Functions.wl         # WL API
+│   ├── Libs/ca_search/
+│   │   ├── src/lib.rs              # Core functions + WLL exports
+│   │   ├── src/gpu.rs              # Metal GPU dispatch
+│   │   ├── src/models.rs           # CAState, CellularAutomaton structs
+│   │   └── shaders/ca_search.metal # Metal compute shaders
+│   └── Binaries/                   # Built native libraries
+├── build_all_targets.sh            # Cross-platform Rust builds
+├── build.wls                       # Paclet packaging + deploy
 └── README.md
 ```
 
-## GPU Search (Width-Doubling Rules)
+## GPU Architecture
 
-A separate Metal GPU search for NKS width-doubling rules (`gpu_search/`):
+On macOS with Apple Silicon, the k=3 r=1 doubler search runs entirely on Metal GPU:
 
-```bash
-cd gpu_search && cargo build --release
-../target/release/gpu_benchmark
-```
+- **7 fixed digits** (analytically derived) reduce 3^27 → 3^20 search space
+- **12 NKS tests** run per thread with early exit (99.9% exit at test 1)
+- **Sequential-scan update** (NKS `doubleasymmi.c` algorithm, NOT standard parallel CA)
+- **~12s** for 3.5B candidates on M3 Max
 
-Searches 3^19 ≈ 1.16B constrained rule candidates in ~12s on Apple M3 Max. Results in `doublers_found.txt`.
+Standard CA searches (`CellularAutomatonSearch`, width/bounded) also use Metal GPU for k≤4, r=1.
