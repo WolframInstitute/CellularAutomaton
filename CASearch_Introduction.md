@@ -148,24 +148,24 @@ The universal doubling pattern: input `{1,...,1,2}` (n ones followed by a 2) evo
 
 ### Sample Width-Doubling Rules
 
-Six examples from the 3,814 rules discovered by exhaustive GPU search. Each column shows the same rule evolving from inputs of width 1, 2, and 4 — producing stable outputs of width 2, 4, and 8 respectively.
+Six examples from the 3,814 width-doubling rules discovered by exhaustive GPU search — three known from NKS and three newly found. Each column shows the same rule evolving from inputs of width 1, 2, and 4, producing stable outputs of width 2, 4, and 8 respectively.
 
 ![Width-doubling mechanism: each rule shown with {1}, {1,2}, and {1,1,1,2} inputs](images/doublers_mechanism.png)
 
 ```wolfram
 (* Visualize width-doubling rules: {1,2} input → width 4 output *)
-doublers = {144892613592, 493427573370, 837428508144, 4510289298924, 6424448193765, 6463950373854};
+doublers = Import["doublers_found.txt", "List"];
+showcase = doublers[[{1, 9, 10, 100, 500, 1000}]]; (* mix of NKS and new *)
 colorRules = {0 -> White, 1 -> GrayLevel[0.15], 2 -> RGBColor[0.8, 0.15, 0.15]};
 
 Grid[Partition[
   Table[
-    rule = doublers[[i]];
     evol = CellularAutomaton[{rule, 3, 1}, CenterArray[{1, 2}, 31], 20];
     Labeled[
       ArrayPlot[evol, ColorRules -> colorRules, Frame -> False, PixelConstrained -> 4],
       Style[ToString[rule], 8], Bottom
     ],
-    {i, Length[doublers]}
+    {rule, showcase}
   ],
   3
 ], Spacings -> {1, 1}]
