@@ -74,6 +74,7 @@ pub fn find_matching_rules(
     target_cells: &[u8],
 ) -> Vec<u64> {
     let initial = CAState::new(initial_cells.to_vec(), k);
+    #[allow(unused_variables)]
     let target_state = CAState::new(target_cells.to_vec(), k);
 
     // Try GPU first
@@ -666,6 +667,7 @@ fn check_doubling_sequential(rule_number: u64, nin: usize) -> bool {
 /// GPU handles tests 1-12 (single pass, 3^20 search space).
 /// CPU handles tests 13+ on survivors if needed.
 pub fn find_doublers_k3r1(num_tests: u32) -> Vec<u64> {
+    #[allow(unused_variables)]
     let gpu_max = num_tests.min(12);
 
     #[cfg(all(target_os = "macos", feature = "gpu"))]
@@ -696,6 +698,66 @@ pub fn find_doublers_k3r1(num_tests: u32) -> Vec<u64> {
 #[wll::export]
 pub fn find_doublers_k3r1_wl(num_tests: u64) -> Vec<u64> {
     find_doublers_k3r1(num_tests as u32)
+}
+
+/// Filter a list of candidate rules by width ratio.
+/// Same logic as find_width_ratio_rules but operates on a provided list instead of a range.
+pub fn filter_width_ratio_rules(
+    candidates: &[u64],
+    k: u32,
+    r: u32,
+    initials: &[CAState],
+    steps: usize,
+    ratio_num: u64,
+    ratio_den: u64,
+    max_width: usize,
+) -> Vec<u64> {
+    let input_widths: Vec<usize> = initials.iter().map(|s| s.active_width()).collect();
+
+    candidates
+        .par_iter()
+        .copied()
+        .filter(|&rule_number| {
+            let ca = CellularAutomaton::from_rule_number(rule_number, k, r);
+            initials.iter().zip(input_widths.iter()).all(|(init, &iw)| {
+                if !ca.is_bounded_width(init, steps, max_width) {
+                    return false;
+                }
+                let final_state = ca.evolve_final(init, steps);
+                let fw = final_state.active_width();
+                (fw as u64) * ratio_den == (iw as u64) * ratio_num
+            })
+        })
+        .collect()
+}
+
+/// WLL wrapper for filter_width_ratio_rules.
+#[wll::export]
+pub fn filter_width_ratio_rules_wl(
+    candidate_rules: Vec<i64>,
+    k: u32,
+    r: u32,
+    flat_inits: Vec<i32>,
+    num_inits: u64,
+    steps: u64,
+    ratio_num: u64,
+    ratio_den: u64,
+    max_width: u64,
+) -> Vec<u64> {
+    let candidates: Vec<u64> = candidate_rules.iter().map(|&r| r as u64).collect();
+    let num = num_inits as usize;
+    let tape_width = flat_inits.len() / num;
+    let initials: Vec<CAState> = flat_inits
+        .chunks(tape_width)
+        .map(|chunk| {
+            let cells: Vec<u8> = chunk.iter().map(|&c| c as u8).collect();
+            CAState::new(cells, k)
+        })
+        .collect();
+    filter_width_ratio_rules(
+        &candidates, k, r, &initials, steps as usize,
+        ratio_num, ratio_den, max_width as usize,
+    )
 }
 
 

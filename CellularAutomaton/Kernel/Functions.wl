@@ -93,6 +93,7 @@ MaxActiveWidthsParallelRust := functions["max_active_widths_parallel_wl"]
 FindWidthRatioRulesRust := functions["find_width_ratio_rules_wl"]
 FindExactWidthRulesRust := functions["find_exact_width_rules_wl"]
 FindDoublersK3R1Rust := functions["find_doublers_k3r1_wl"]
+FilterWidthRatioRulesRust := functions["filter_width_ratio_rules_wl"]
 
 (* Helper: convert WL list to DataStore for WLL Vec<T> arguments *)
 toDS[list_List] := Developer`DataStore @@ list
@@ -239,6 +240,17 @@ CellularAutomatonWidthRatioSearch[inits:{__List}, steps_Integer, ratio_, {k_Inte
 
 CellularAutomatonWidthRatioSearch[inits:{__List}, steps_Integer, ratio_] :=
     CellularAutomatonWidthRatioSearch[inits, steps, ratio, {2, 1}]
+
+(* Sieve overload: filter a provided list of candidate rules *)
+CellularAutomatonWidthRatioSearch[inits:{__List}, steps_Integer, ratio_?NumericQ, {k_Integer, r_Integer},
+        rules_List] :=
+    With[{rat = Rationalize[ratio], flat = Flatten[inits], n = Length[inits]},
+        fromDS @ FilterWidthRatioRulesRust[toDS[rules], k, r, toDS[flat], n, steps,
+            Numerator[rat], Denominator[rat], Max[Length /@ inits]]
+    ]
+
+CellularAutomatonWidthRatioSearch[inits:{__List}, steps_Integer, ratio_?NumericQ, rules_List] :=
+    CellularAutomatonWidthRatioSearch[inits, steps, ratio, {2, 1}, rules]
 
 
 End[]
