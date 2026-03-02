@@ -94,6 +94,7 @@ FindWidthRatioRulesRust := functions["find_width_ratio_rules_wl"]
 FindExactWidthRulesRust := functions["find_exact_width_rules_wl"]
 FindDoublersK3R1Rust := functions["find_doublers_k3r1_wl"]
 FilterWidthRatioRulesRust := functions["filter_width_ratio_rules_wl"]
+FilterDoublersK3R1Rust := functions["filter_doublers_k3r1_wl"]
 
 (* Helper: convert WL list to DataStore for WLL Vec<T> arguments *)
 toDS[list_List] := Developer`DataStore @@ list
@@ -233,6 +234,10 @@ CellularAutomatonWidthRatioSearch[inits:{__List}, steps_Integer, ratio_, {k_Inte
 (* Specialized fast path: ratio=2, k=3, r=1 → GPU-accelerated doubler search *)
 CellularAutomatonWidthRatioSearch[inits:{__List}, steps_Integer, 2, {3, 1}] :=
     fromDS @ FindDoublersK3R1Rust[Length[inits]]
+
+(* Specialized sieve: ratio=2, k=3, r=1 → NKS sequential-scan filter *)
+CellularAutomatonWidthRatioSearch[inits:{__List}, steps_Integer, 2, {3, 1}, rules_List] :=
+    fromDS @ FilterDoublersK3R1Rust[toDS[rules], Length[inits]]
 
 CellularAutomatonWidthRatioSearch[inits:{__List}, steps_Integer, ratio_, {k_Integer, r_Integer}] :=
     CellularAutomatonWidthRatioSearch[inits, steps, ratio, {k, r},

@@ -700,6 +700,24 @@ pub fn find_doublers_k3r1_wl(num_tests: u64) -> Vec<u64> {
     find_doublers_k3r1(num_tests as u32)
 }
 
+/// Filter candidate rules using NKS sequential-scan doubler check.
+pub fn filter_doublers_k3r1(candidates: &[u64], num_tests: u32) -> Vec<u64> {
+    candidates
+        .par_iter()
+        .copied()
+        .filter(|&rule| {
+            (1..=num_tests as usize).all(|nin| check_doubling_sequential(rule, nin))
+        })
+        .collect()
+}
+
+/// WLL wrapper for filter_doublers_k3r1.
+#[wll::export]
+pub fn filter_doublers_k3r1_wl(candidate_rules: Vec<i64>, num_tests: u64) -> Vec<u64> {
+    let candidates: Vec<u64> = candidate_rules.iter().map(|&r| r as u64).collect();
+    filter_doublers_k3r1(&candidates, num_tests as u32)
+}
+
 /// Filter a list of candidate rules by width ratio.
 /// Same logic as find_width_ratio_rules but operates on a provided list instead of a range.
 pub fn filter_width_ratio_rules(
