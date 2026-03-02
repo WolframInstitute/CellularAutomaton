@@ -168,8 +168,9 @@ fn is_bounded_k3r1(table: &[u8; 27], initial: &[u8], steps: usize, max_width: us
 /// Find rules whose active width stays bounded (never exceeds max_width).
 /// Fully optimized for k=3, r=1:
 /// - Iterates only multiples of k (3x fewer tasks)
-/// - Specialized rule decoder with literal /3 %3 (LLVM optimizes to multiply+shift)
-/// - Inlined bounded-width checker with baked-in k=3 constants
+/// - Left-right reflection symmetry (~2x fewer tests)
+/// - Color permutation symmetry (1↔2) (~2x fewer tests)
+/// - Combined: up to ~12x fewer evolution checks vs naive
 /// Returns Vec of matching rule numbers. Parallelized with rayon.
 pub fn find_bounded_width_rules(
     min_rule: u64,
@@ -193,9 +194,42 @@ pub fn find_bounded_width_rules(
 
     // Specialized fast path for k=3, r=1
     if k == 3 && r == 1 {
+        // Precompute reflection permutation: reflect[i] maps index i to reflected index
+        // For neighborhood (l,c,r) at index l*9+c*3+r, reflection gives (r,c,l) at r*9+c*3+l
+        let mut reflect_perm = [0usize; 27];
+        for l in 0..3usize {
+            for c in 0..3usize {
+                for r in 0..3usize {
+                    reflect_perm[l * 9 + c * 3 + r] = r * 9 + c * 3 + l;
+                }
+            }
+        }
+
+        // Precompute color swap permutation (0→0, 1→2, 2→1)
+        let color_swap: [usize; 3] = [0, 2, 1];
+        let mut color_perm = [0usize; 27]; // maps old index → new index
+        let mut color_output = [0u8; 3];   // maps old output → new output
+        color_output[0] = 0;
+        color_output[1] = 2;
+        color_output[2] = 1;
+        for l in 0..3usize {
+            for c in 0..3usize {
+                for r in 0..3usize {
+                    let old_idx = l * 9 + c * 3 + r;
+                    let new_idx = color_swap[l] * 9 + color_swap[c] * 3 + color_swap[r];
+                    color_perm[old_idx] = new_idx;
+                }
+            }
+        }
+        // Precompute combined reflection + color swap permutation
+        let mut both_perm = [0usize; 27];
+        for i in 0..27usize {
+            both_perm[i] = color_perm[reflect_perm[i]];
+        }
+
         // Iterate only multiples of 3 (digit 0 = f(0,0,0) must be 0)
-        let start = ((min_rule + 2) / 3) * 3; // round up to nearest multiple of 3
-        let end = (max_rule / 3) * 3;          // round down
+        let start = ((min_rule + 2) / 3) * 3;
+        let end = (max_rule / 3) * 3;
         if start > end { return vec![]; }
         let count = (end - start) / 3 + 1;
 
@@ -204,15 +238,28 @@ pub fn find_bounded_width_rules(
             .filter_map(|i| {
                 let rule_number = start + i * 3;
 
-                // Decode rule table with literal /3 %3 — LLVM optimizes to multiply+shift
+                // Decode rule table with literal /3 %3
                 let mut table = [0u8; 27];
                 let mut val = rule_number;
                 for j in 0..27usize {
                     table[j] = (val % 3) as u8;
                     val /= 3;
                 }
-                // table[0] == 0 is guaranteed by stepping by 3
 
+                // Compute symmetry variants and check if this is canonical (smallest)
+                // Variant 1: left-right reflection
+                let reflected = rule_number_from_table_k3(&table, &reflect_perm, &[0, 1, 2]);
+                if reflected < rule_number { return None; }
+
+                // Variant 2: color swap (1↔2)
+                let swapped = rule_number_from_table_k3(&table, &color_perm, &color_output);
+                if swapped % 3 == 0 && swapped < rule_number { return None; }
+
+                // Variant 3: reflection + color swap
+                let both = rule_number_from_table_k3(&table, &both_perm, &color_output);
+                if both % 3 == 0 && both < rule_number { return None; }
+
+                // This rule is canonical — test it
                 // Stage 1: Quick 3-step pre-filter on small tape
                 if !is_bounded_k3r1(&table, &small_init, 3, max_width) {
                     return None;
@@ -239,6 +286,26 @@ pub fn find_bounded_width_rules(
             ca.is_bounded_width_fast(&initial, steps, max_width)
         })
         .collect()
+}
+
+/// Compute a rule number from a table after applying index permutation and output mapping.
+/// new_table[i] = output_map[old_table[index_perm[i]]]
+/// Returns the base-3 encoded rule number.
+#[inline(always)]
+fn rule_number_from_table_k3(
+    table: &[u8; 27],
+    index_perm: &[usize; 27],
+    output_map: &[u8; 3],
+) -> u64 {
+    let mut number: u64 = 0;
+    let mut power: u64 = 1;
+    for i in 0..27usize {
+        let src = index_perm[i];
+        let v = output_map[table[src] as usize];
+        number += v as u64 * power;
+        power *= 3;
+    }
+    number
 }
 
 /// Compute the max active width for each rule in a range.
