@@ -3,9 +3,17 @@ name = "ca_search"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+default = ["gpu"]
+gpu = ["metal", "objc"]
+
 [dependencies]
 rayon = "1.8"
 wolfram-library-link = { git = "https://github.com/sw1sh/wolfram-library-link-rs", branch = "feature/optional_wstp" }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+metal = { version = "0.29", optional = true }
+objc = { version = "0.2", optional = true }
 
 [lib]
 name = "ca_search"

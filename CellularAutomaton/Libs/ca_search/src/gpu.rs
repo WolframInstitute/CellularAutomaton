@@ -1,0 +1,291 @@
+//! Metal GPU-accelerated CA search engine.
+//! Only available on macOS with the `gpu` feature enabled.
+
+use metal::*;
+use std::mem;
+
+use crate::models::CAState;
+
+const SHADER_SRC: &str = include_str!("../shaders/ca_search.metal");
+const MAX_OUTPUT: u64 = 1_000_000;
+const BATCH_SIZE: u64 = 50_000_000; // 50M rules per GPU dispatch
+
+/// Metal GPU search engine. Caches compiled pipelines for reuse.
+pub struct GpuSearchEngine {
+    device: Device,
+    queue: CommandQueue,
+    exact_width_pipeline: ComputePipelineState,
+    matching_pipeline: ComputePipelineState,
+    bounded_pipeline: ComputePipelineState,
+}
+
+impl GpuSearchEngine {
+    /// Initialize Metal device and compile shader pipelines.
+    /// Returns None if Metal is not available.
+    pub fn new() -> Option<Self> {
+        let device = Device::system_default()?;
+        let library = device
+            .new_library_with_source(SHADER_SRC, &CompileOptions::new())
+            .ok()?;
+
+        let make_pipeline = |name: &str| -> Option<ComputePipelineState> {
+            let func = library.get_function(name, None).ok()?;
+            device.new_compute_pipeline_state_with_function(&func).ok()
+        };
+
+        let exact_width_pipeline = make_pipeline("ca_find_exact_width")?;
+        let matching_pipeline = make_pipeline("ca_find_matching")?;
+        let bounded_pipeline = make_pipeline("ca_find_bounded")?;
+
+        let queue = device.new_command_queue();
+
+        Some(Self {
+            device,
+            queue,
+            exact_width_pipeline,
+            matching_pipeline,
+            bounded_pipeline,
+        })
+    }
+
+    /// Check if the search parameters are GPU-compatible.
+    /// Currently: r=1 only, k<=4, tape_width <= 256.
+    fn is_supported(k: u32, r: u32, tape_width: usize) -> bool {
+        r == 1 && k <= 4 && tape_width <= 256
+    }
+
+    /// Dispatch a batched GPU search and collect results.
+    fn dispatch_search(
+        &self,
+        pipeline: &ComputePipelineState,
+        min_rule: u64,
+        max_rule: u64,
+        params: &[u64],
+        init_buf: &Buffer,
+        extra_buf: Option<&Buffer>,
+    ) -> Vec<u64> {
+        let total = max_rule - min_rule + 1;
+        let n_batches = (total + BATCH_SIZE - 1) / BATCH_SIZE;
+        let max_threads = pipeline.max_total_threads_per_threadgroup();
+
+        let params_buf = self.device.new_buffer(
+            (params.len() * mem::size_of::<u64>()) as u64,
+            MTLResourceOptions::StorageModeShared,
+        );
+        let counter_buf = self.device.new_buffer(4, MTLResourceOptions::StorageModeShared);
+        let output_buf = self.device.new_buffer(
+            MAX_OUTPUT * 8,
+            MTLResourceOptions::StorageModeShared,
+        );
+
+        let mut all_results: Vec<u64> = Vec::new();
+
+        for batch in 0..n_batches {
+            let start = min_rule + batch * BATCH_SIZE;
+            let count = BATCH_SIZE.min(max_rule + 1 - start);
+
+            // Update params: params[0] = start_rule, params[1] = count
+            let mut batch_params = params.to_vec();
+            batch_params[0] = start;
+            batch_params[1] = count;
+
+            unsafe {
+                let ptr = params_buf.contents() as *mut u64;
+                for (i, &v) in batch_params.iter().enumerate() {
+                    *ptr.add(i) = v;
+                }
+                *(counter_buf.contents() as *mut u32) = 0;
+            }
+
+            let cb = self.queue.new_command_buffer();
+            let enc = cb.new_compute_command_encoder();
+            enc.set_compute_pipeline_state(pipeline);
+            enc.set_buffer(0, Some(&params_buf), 0);
+            enc.set_buffer(1, Some(init_buf), 0);
+            enc.set_buffer(2, Some(&counter_buf), 0);
+            enc.set_buffer(3, Some(&output_buf), 0);
+            if let Some(extra) = extra_buf {
+                enc.set_buffer(4, Some(extra), 0);
+            }
+            enc.dispatch_threads(
+                MTLSize::new(count, 1, 1),
+                MTLSize::new(max_threads as u64, 1, 1),
+            );
+            enc.end_encoding();
+
+            cb.commit();
+            cb.wait_until_completed();
+
+            let found = unsafe { *(counter_buf.contents() as *const u32) } as u64;
+            let ptr = output_buf.contents() as *const u64;
+            for i in 0..found.min(MAX_OUTPUT) as usize {
+                let rule = unsafe { *ptr.add(i) };
+                all_results.push(rule);
+            }
+        }
+
+        all_results.sort_unstable();
+        all_results.dedup();
+        all_results
+    }
+
+    /// Create a Metal buffer from init cells.
+    fn make_init_buffer(&self, init: &CAState) -> Buffer {
+        let cells = &init.cells;
+        let buf = self.device.new_buffer(
+            cells.len() as u64,
+            MTLResourceOptions::StorageModeShared,
+        );
+        unsafe {
+            let ptr = buf.contents() as *mut u8;
+            for (i, &c) in cells.iter().enumerate() {
+                *ptr.add(i) = c;
+            }
+        }
+        buf
+    }
+
+    /// Find rules where final active width == target_width.
+    pub fn find_exact_width_rules(
+        &self,
+        min_rule: u64,
+        max_rule: u64,
+        k: u32,
+        r: u32,
+        init: &CAState,
+        steps: usize,
+        target_width: usize,
+    ) -> Option<Vec<u64>> {
+        if !Self::is_supported(k, r, init.cells.len()) {
+            return None;
+        }
+
+        let init_buf = self.make_init_buffer(init);
+        // params: start_rule, count, k, tape_width, steps, target_width
+        let params = vec![0u64, 0, k as u64, init.cells.len() as u64, steps as u64, target_width as u64];
+
+        Some(self.dispatch_search(
+            &self.exact_width_pipeline,
+            min_rule, max_rule,
+            &params,
+            &init_buf,
+            None,
+        ))
+    }
+
+    /// Find rules where final state matches target exactly.
+    pub fn find_matching_rules(
+        &self,
+        min_rule: u64,
+        max_rule: u64,
+        k: u32,
+        r: u32,
+        init: &CAState,
+        steps: usize,
+        target: &CAState,
+    ) -> Option<Vec<u64>> {
+        if !Self::is_supported(k, r, init.cells.len()) {
+            return None;
+        }
+
+        let init_buf = self.make_init_buffer(init);
+        let target_cells = &target.cells;
+        let target_buf = self.device.new_buffer(
+            target_cells.len() as u64,
+            MTLResourceOptions::StorageModeShared,
+        );
+        unsafe {
+            let ptr = target_buf.contents() as *mut u8;
+            for (i, &c) in target_cells.iter().enumerate() {
+                *ptr.add(i) = c;
+            }
+        }
+
+        let params = vec![0u64, 0, k as u64, init.cells.len() as u64, steps as u64];
+
+        Some(self.dispatch_search(
+            &self.matching_pipeline,
+            min_rule, max_rule,
+            &params,
+            &init_buf,
+            Some(&target_buf),
+        ))
+    }
+
+    /// Find rules where max active width never exceeds max_width.
+    pub fn find_bounded_width_rules(
+        &self,
+        min_rule: u64,
+        max_rule: u64,
+        k: u32,
+        r: u32,
+        init: &CAState,
+        steps: usize,
+        max_width: usize,
+    ) -> Option<Vec<u64>> {
+        if !Self::is_supported(k, r, init.cells.len()) {
+            return None;
+        }
+
+        let init_buf = self.make_init_buffer(init);
+        let params = vec![0u64, 0, k as u64, init.cells.len() as u64, steps as u64, max_width as u64];
+
+        Some(self.dispatch_search(
+            &self.bounded_pipeline,
+            min_rule, max_rule,
+            &params,
+            &init_buf,
+            None,
+        ))
+    }
+}
+
+// Thread-local GPU engine singleton for reuse across calls.
+thread_local! {
+    static GPU_ENGINE: Option<GpuSearchEngine> = GpuSearchEngine::new();
+}
+
+/// Try to run exact width search on GPU. Returns None if GPU unavailable or unsupported params.
+pub fn try_find_exact_width_rules(
+    min_rule: u64,
+    max_rule: u64,
+    k: u32,
+    r: u32,
+    init: &CAState,
+    steps: usize,
+    target_width: usize,
+) -> Option<Vec<u64>> {
+    GPU_ENGINE.with(|engine| {
+        engine.as_ref()?.find_exact_width_rules(min_rule, max_rule, k, r, init, steps, target_width)
+    })
+}
+
+/// Try to run matching search on GPU.
+pub fn try_find_matching_rules(
+    min_rule: u64,
+    max_rule: u64,
+    k: u32,
+    r: u32,
+    init: &CAState,
+    steps: usize,
+    target: &CAState,
+) -> Option<Vec<u64>> {
+    GPU_ENGINE.with(|engine| {
+        engine.as_ref()?.find_matching_rules(min_rule, max_rule, k, r, init, steps, target)
+    })
+}
+
+/// Try to run bounded width search on GPU.
+pub fn try_find_bounded_width_rules(
+    min_rule: u64,
+    max_rule: u64,
+    k: u32,
+    r: u32,
+    init: &CAState,
+    steps: usize,
+    max_width: usize,
+) -> Option<Vec<u64>> {
+    GPU_ENGINE.with(|engine| {
+        engine.as_ref()?.find_bounded_width_rules(min_rule, max_rule, k, r, init, steps, max_width)
+    })
+}

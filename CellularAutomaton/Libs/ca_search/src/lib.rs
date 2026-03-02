@@ -5,6 +5,9 @@ wll::generate_loader!(rustlink_autodiscover);
 use rayon::prelude::*;
 
 pub mod models;
+#[cfg(all(target_os = "macos", feature = "gpu"))]
+pub mod gpu;
+
 use crate::models::{CAState, CellularAutomaton};
 
 // =============================================================================
@@ -60,7 +63,7 @@ pub fn ca_output_table_parallel(
 }
 
 /// Search for rules whose final state matches a target pattern.
-/// Returns Vec of matching rule numbers. Parallelized with rayon.
+/// Returns Vec of matching rule numbers. GPU-accelerated on macOS, CPU fallback.
 pub fn find_matching_rules(
     min_rule: u64,
     max_rule: u64,
@@ -71,6 +74,16 @@ pub fn find_matching_rules(
     target_cells: &[u8],
 ) -> Vec<u64> {
     let initial = CAState::new(initial_cells.to_vec(), k);
+    let target_state = CAState::new(target_cells.to_vec(), k);
+
+    // Try GPU first
+    #[cfg(all(target_os = "macos", feature = "gpu"))]
+    if let Some(results) = gpu::try_find_matching_rules(
+        min_rule, max_rule, k, 1, &initial, steps, &target_state,
+    ) {
+        return results;
+    }
+
     let target = target_cells.to_vec();
     (min_rule..=max_rule)
         .into_par_iter()
@@ -385,6 +398,7 @@ pub fn find_width_ratio_rules(
 
 /// Find rules where the final active width equals exactly `target_width`.
 /// Supports multiple initial conditions: ALL must produce the target width.
+/// GPU-accelerated for single-init on macOS.
 pub fn find_exact_width_rules(
     min_rule: u64,
     max_rule: u64,
@@ -394,8 +408,17 @@ pub fn find_exact_width_rules(
     steps: usize,
     target_width: usize,
 ) -> Vec<u64> {
-    let initials: Vec<_> = initials.to_vec();
+    // Try GPU for single-init case
+    #[cfg(all(target_os = "macos", feature = "gpu"))]
+    if initials.len() == 1 {
+        if let Some(results) = gpu::try_find_exact_width_rules(
+            min_rule, max_rule, k, 1, &initials[0], steps, target_width,
+        ) {
+            return results;
+        }
+    }
 
+    let initials: Vec<_> = initials.to_vec();
     (min_rule..=max_rule)
         .into_par_iter()
         .filter(|&rule_number| {
