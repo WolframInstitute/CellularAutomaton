@@ -140,6 +140,64 @@ ListPlot[widths[[All, 1]], PlotLabel -> "Max active width for each elementary CA
 Select[Thread[Range[0, 255] -> widths[[All, 1]]], Last[#] <= 5 &]
 ```
 
+## Width-Doubling Rules
+
+Among the 7.6 trillion k=3, r=1 rules, a rare class of **width-doubling rules** can take an input pattern of width *w* and produce a stable output of width *2w* — implementing the function of doubling entirely through local CA dynamics (cf. [NKS pp. 832–833](https://www.wolframscience.com/nks/p832--computations-with-special-initial-conditions/)).
+
+The universal doubling pattern: input `{1,...,1,2}` (n ones followed by a 2) evolves to `{1,...,1}` (2n+2 solid ones). The trailing 2 acts as a signal that triggers the doubling; all-1s blocks are fixed points.
+
+### Sample Width-Doubling Rules
+
+Six examples from the 3,814 rules discovered by exhaustive GPU search. Each column shows the same rule evolving from inputs of width 1, 2, and 4 — producing stable outputs of width 2, 4, and 8 respectively.
+
+![Width-doubling mechanism: each rule shown with {1}, {1,2}, and {1,1,1,2} inputs](images/doublers_mechanism.png)
+
+```wolfram
+(* Visualize width-doubling rules: {1,2} input → width 4 output *)
+doublers = {144892613592, 493427573370, 837428508144, 4510289298924, 6424448193765, 6463950373854};
+colorRules = {0 -> White, 1 -> GrayLevel[0.15], 2 -> RGBColor[0.8, 0.15, 0.15]};
+
+Grid[Partition[
+  Table[
+    rule = doublers[[i]];
+    evol = CellularAutomaton[{rule, 3, 1}, CenterArray[{1, 2}, 31], 20];
+    Labeled[
+      ArrayPlot[evol, ColorRules -> colorRules, Frame -> False, PixelConstrained -> 4],
+      Style[ToString[rule], 8], Bottom
+    ],
+    {i, Length[doublers]}
+  ],
+  3
+], Spacings -> {1, 1}]
+```
+
+### Verifying Width Doubling
+
+```wolfram
+(* Verify: {1,...,1,2} → {1,...,1} with doubled width *)
+rule = 144892613592;
+Table[
+  init = Append[ConstantArray[1, n], 2];
+  evol = CellularAutomaton[{rule, 3, 1}, CenterArray[init, 101], 100];
+  finalNZ = Select[Last[evol], # != 0 &];
+  Row[{"{1^", n, ",2} (w=", n + 1, ") → ", finalNZ, " (w=", Length[finalNZ], ")"}],
+  {n, 0, 5}
+] // Column
+```
+
+### GPU-Accelerated Exhaustive Search
+
+The search exploits 8 universal digit constraints shared by all doublers, reducing the search space from 3²⁷ (7.6 trillion) to 3¹⁹ (1.16 billion). Each candidate is tested with 7 initial conditions on the GPU.
+
+```wolfram
+(* Launch GPU doubler search (requires Metal GPU) *)
+(* Run["wolframscript -f search_doublers_gpu.wl"] *)
+
+(* Load pre-computed results *)
+doublerRules = Import["doublers_found.txt", "List"];
+Length[doublerRules] (* 3814 rules found *)
+```
+
 ## Parity with Built-in CellularAutomaton
 
 Verify that results from the Rust backend match Wolfram's built-in `CellularAutomaton` exactly.
