@@ -8,3 +8,5 @@ CellularAutomaton/Binaries/*.dll
 CellularAutomaton/Binaries/*.so
 *.nb
 Cargo.lock
+search_results_gpu/
+gpu_search.log
