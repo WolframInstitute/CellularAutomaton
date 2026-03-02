@@ -103,12 +103,73 @@ pub fn ca_evolution_table_parallel(
         .collect()
 }
 
+/// Fully specialized bounded-width check for k=3, r=1.
+/// Uses array indexing with baked-in constants (*9 + *3 +).
+/// Combined step + boundary tracking in single pass per step.
+#[inline(always)]
+fn is_bounded_k3r1(table: &[u8; 27], initial: &[u8], steps: usize, max_width: usize) -> bool {
+    const MAX: usize = 64;
+    let w = initial.len().min(MAX);
+
+    let mut a = [0u8; MAX];
+    let mut b = [0u8; MAX];
+    a[..w].copy_from_slice(&initial[..w]);
+
+    let mut left = w;
+    let mut right = 0usize;
+    for i in 0..w {
+        if a[i] != 0 {
+            if i < left { left = i; }
+            right = i;
+        }
+    }
+    if left > right { return true; }
+
+    for step in 0..steps {
+        let el = if left >= 2 { left - 2 } else { 0 };
+        let er = if right + 2 < w { right + 2 } else { w - 1 };
+
+        let mut nl = w;
+        let mut nr = 0usize;
+
+        if step & 1 == 0 {
+            for i in el..=er {
+                let li = if i == 0 { w - 1 } else { i - 1 };
+                let ri = if i + 1 >= w { 0 } else { i + 1 };
+                let v = table[a[li] as usize * 9 + a[i] as usize * 3 + a[ri] as usize];
+                b[i] = v;
+                if v != 0 {
+                    if i < nl { nl = i; }
+                    nr = i;
+                }
+            }
+        } else {
+            for i in el..=er {
+                let li = if i == 0 { w - 1 } else { i - 1 };
+                let ri = if i + 1 >= w { 0 } else { i + 1 };
+                let v = table[b[li] as usize * 9 + b[i] as usize * 3 + b[ri] as usize];
+                a[i] = v;
+                if v != 0 {
+                    if i < nl { nl = i; }
+                    nr = i;
+                }
+            }
+        }
+
+        if nl > nr { return true; }
+        if nr - nl + 1 > max_width { return false; }
+
+        left = nl;
+        right = nr;
+    }
+    true
+}
+
 /// Find rules whose active width stays bounded (never exceeds max_width).
-/// Uses multi-stage filtering for maximum throughput:
-/// Stage 0: rule % k != 0 → background activates (eliminates 2/3 for k=3)
-/// Stage 1: 1-step check (cheapest evolution)
-/// Stage 2: 3-step check on small tape
-/// Stage 3: Full check on full tape
+/// Fully optimized for k=3, r=1:
+/// - Iterates only multiples of k (3x fewer tasks)
+/// - Specialized rule decoder with literal /3 %3 (LLVM optimizes to multiply+shift)
+/// - Inlined bounded-width checker with baked-in k=3 constants
 /// Returns Vec of matching rule numbers. Parallelized with rayon.
 pub fn find_bounded_width_rules(
     min_rule: u64,
@@ -121,33 +182,60 @@ pub fn find_bounded_width_rules(
 ) -> Vec<u64> {
     let k64 = k as u64;
 
-    // Small tape for quick stages
-    let small_width = max_width + 6;
-    let small_width = small_width.min(initial_cells.len());
+    // Small tape for quick pre-filter stage
+    let small_width = (max_width + 6).min(initial_cells.len());
     let center = initial_cells.len() / 2;
     let half = small_width / 2;
-    let start = center.saturating_sub(half);
-    let end = (start + small_width).min(initial_cells.len());
-    let small_init: Vec<u8> = initial_cells[start..end].to_vec();
-
+    let s = center.saturating_sub(half);
+    let e = (s + small_width).min(initial_cells.len());
+    let small_init: Vec<u8> = initial_cells[s..e].to_vec();
     let initial = initial_cells.to_vec();
 
+    // Specialized fast path for k=3, r=1
+    if k == 3 && r == 1 {
+        // Iterate only multiples of 3 (digit 0 = f(0,0,0) must be 0)
+        let start = ((min_rule + 2) / 3) * 3; // round up to nearest multiple of 3
+        let end = (max_rule / 3) * 3;          // round down
+        if start > end { return vec![]; }
+        let count = (end - start) / 3 + 1;
+
+        return (0..count)
+            .into_par_iter()
+            .filter_map(|i| {
+                let rule_number = start + i * 3;
+
+                // Decode rule table with literal /3 %3 — LLVM optimizes to multiply+shift
+                let mut table = [0u8; 27];
+                let mut val = rule_number;
+                for j in 0..27usize {
+                    table[j] = (val % 3) as u8;
+                    val /= 3;
+                }
+                // table[0] == 0 is guaranteed by stepping by 3
+
+                // Stage 1: Quick 3-step pre-filter on small tape
+                if !is_bounded_k3r1(&table, &small_init, 3, max_width) {
+                    return None;
+                }
+
+                // Stage 2: Full check on full tape
+                if !is_bounded_k3r1(&table, &initial, steps, max_width) {
+                    return None;
+                }
+
+                Some(rule_number)
+            })
+            .collect();
+    }
+
+    // Generic fallback for non-k=3 cases
     (min_rule..=max_rule)
         .into_par_iter()
         .filter(|&rule_number| {
-            // Stage 0: f(0,0,0) must be 0 — single modulo, eliminates 2/3 of rules
             if rule_number % k64 != 0 {
                 return false;
             }
-
             let ca = CellularAutomaton::from_rule_number(rule_number, k, r);
-
-            // Stage 1: 3-step check on small tape
-            if !ca.is_bounded_width_fast(&small_init, 3, max_width) {
-                return false;
-            }
-
-            // Stage 2: Full check on full tape for survivors
             ca.is_bounded_width_fast(&initial, steps, max_width)
         })
         .collect()
