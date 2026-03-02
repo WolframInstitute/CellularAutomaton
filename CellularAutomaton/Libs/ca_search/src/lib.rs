@@ -183,13 +183,6 @@ pub fn find_bounded_width_rules(
 ) -> Vec<u64> {
     let k64 = k as u64;
 
-    // Small tape for quick pre-filter stage
-    let small_width = (max_width + 6).min(initial_cells.len());
-    let center = initial_cells.len() / 2;
-    let half = small_width / 2;
-    let s = center.saturating_sub(half);
-    let e = (s + small_width).min(initial_cells.len());
-    let small_init: Vec<u8> = initial_cells[s..e].to_vec();
     let initial = initial_cells.to_vec();
 
     // Specialized fast path for k=3, r=1
@@ -260,10 +253,25 @@ pub fn find_bounded_width_rules(
                 if both % 3 == 0 && both < rule_number { return None; }
 
                 // This rule is canonical — test it
-                // Stage 1: Quick 3-step pre-filter on small tape
-                if !is_bounded_k3r1(&table, &small_init, 3, max_width) {
-                    return None;
+                // Analytical 3-step pre-filter: for init {1} and max_width=5,
+                // steps 1-2 never exceed width 5. Step 3 exceeds iff
+                // boundary cells at ±3 become nonzero.
+                // Step 1: [d1, d3, d9] = [table[1], table[3], table[9]]
+                let d1 = table[1] as usize;
+                let d3 = table[3] as usize;
+                let d9 = table[9] as usize;
+                if d1 == 0 && d3 == 0 && d9 == 0 {
+                    // Rule kills the initial cell → trivially bounded
+                    return Some(rule_number);
                 }
+                // Step 2: 5 cells [s2_0..s2_4]
+                let s2_0 = table[d1] as usize;      // f(0,0,d1)
+                let s2_4 = table[d9 * 9] as usize;  // f(d9,0,0)
+                // Step 3: boundary check — do cells at ±3 activate?
+                // Cell at center-3: neighborhood (0, 0, s2_0) → table[s2_0]
+                // Cell at center+3: neighborhood (s2_4, 0, 0) → table[s2_4 * 9]
+                if s2_0 != 0 && table[s2_0] != 0 { return None; }
+                if s2_4 != 0 && table[s2_4 * 9] != 0 { return None; }
 
                 // Stage 2: Full check on full tape
                 if !is_bounded_k3r1(&table, &initial, steps, max_width) {
