@@ -384,7 +384,6 @@ pub fn find_width_ratio_rules(
 }
 
 /// Find rules where the final active width equals exactly `target_width`.
-/// Uses bounded-width early bailout for performance.
 /// Supports multiple initial conditions: ALL must produce the target width.
 pub fn find_exact_width_rules(
     min_rule: u64,
@@ -402,10 +401,6 @@ pub fn find_exact_width_rules(
         .filter(|&rule_number| {
             let ca = CellularAutomaton::from_rule_number(rule_number, k, r);
             initials.iter().all(|init| {
-                // Early exit if width exceeds target (can't be exact match)
-                if !ca.is_bounded_width(init, steps, target_width + 2) {
-                    return false;
-                }
                 let final_state = ca.evolve_final(init, steps);
                 final_state.active_width() == target_width
             })
