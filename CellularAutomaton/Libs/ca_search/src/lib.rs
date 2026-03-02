@@ -239,6 +239,15 @@ pub fn find_bounded_width_rules(
                     val /= 3;
                 }
 
+                // Digit-level structural constraints (eliminates ~75%)
+                // table[1]=1 → f(0,0,1)=1 chain reaction (always unbounded left)
+                // table[9]=1 → f(1,0,0)=1 chain reaction (always unbounded right)
+                if table[1] == 1 || table[9] == 1 { return None; }
+                // table[1]=2 requires table[2]=0 (step-3 left boundary leak)
+                if table[1] == 2 && table[2] != 0 { return None; }
+                // table[9]=2 requires table[18]=0 (step-3 right boundary leak)
+                if table[9] == 2 && table[18] != 0 { return None; }
+
                 // Compute symmetry variants and check if this is canonical (smallest)
                 // Variant 1: left-right reflection
                 let reflected = rule_number_from_table_k3(&table, &reflect_perm, &[0, 1, 2]);
