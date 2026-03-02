@@ -92,6 +92,7 @@ FindBoundedWidthRulesRust := functions["find_bounded_width_rules_wl"]
 MaxActiveWidthsParallelRust := functions["max_active_widths_parallel_wl"]
 FindWidthRatioRulesRust := functions["find_width_ratio_rules_wl"]
 FindExactWidthRulesRust := functions["find_exact_width_rules_wl"]
+FindDoublersK3R1Rust := functions["find_doublers_k3r1_wl"]
 
 (* Helper: convert WL list to DataStore for WLL Vec<T> arguments *)
 toDS[list_List] := Developer`DataStore @@ list
@@ -227,6 +228,12 @@ CellularAutomatonWidthRatioSearch[inits:{__List}, steps_Integer, ratio_, {k_Inte
         minRule_Integer ;; maxRule_Integer] :=
     CellularAutomatonWidthRatioSearch[inits, steps, ratio, {k, r}, minRule ;; maxRule,
         Max[Length /@ inits]]
+
+(* Specialized fast path: ratio=2, k=3, r=1 full search → GPU-accelerated 3^19 constrained search *)
+CellularAutomatonWidthRatioSearch[inits:{__List}, steps_Integer, 2, {3, 1}] :=
+    Module[{numTests = Length[inits]},
+        fromDS @ FindDoublersK3R1Rust[numTests]
+    ]
 
 CellularAutomatonWidthRatioSearch[inits:{__List}, steps_Integer, ratio_, {k_Integer, r_Integer}] :=
     CellularAutomatonWidthRatioSearch[inits, steps, ratio, {k, r},

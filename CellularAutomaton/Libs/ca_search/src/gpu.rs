@@ -238,6 +238,72 @@ impl GpuSearchEngine {
             None,
         ))
     }
+
+    /// Find k=3 r=1 width-doublers using specialized kernel with analytical constraints.
+    /// Searches 3^19 free-digit combinations (8 digits fixed analytically).
+    /// num_tests = number of doubling tests (widths 1→2, 2→4, ..., up to 7→14).
+    pub fn find_doublers_k3r1(&self, num_tests: u32) -> Option<Vec<u64>> {
+        let pipeline = {
+            let library = self.device
+                .new_library_with_source(SHADER_SRC, &CompileOptions::new())
+                .ok()?;
+            let func = library.get_function("ca_find_doublers", None).ok()?;
+            self.device.new_compute_pipeline_state_with_function(&func).ok()?
+        };
+        let max_threads = pipeline.max_total_threads_per_threadgroup();
+
+        let total: u64 = 1_162_261_467; // 3^19
+        let batch_size: u64 = 100_000_000;
+        let n_batches = (total + batch_size - 1) / batch_size;
+
+        let params_buf = self.device.new_buffer(24, MTLResourceOptions::StorageModeShared);
+        let counter_buf = self.device.new_buffer(4, MTLResourceOptions::StorageModeShared);
+        let output_buf = self.device.new_buffer(
+            MAX_OUTPUT * 8,
+            MTLResourceOptions::StorageModeShared,
+        );
+
+        let mut all_results: Vec<u64> = Vec::new();
+
+        for batch in 0..n_batches {
+            let start = batch * batch_size;
+            let count = batch_size.min(total - start);
+
+            unsafe {
+                let ptr = params_buf.contents() as *mut u64;
+                *ptr.add(0) = start;
+                *ptr.add(1) = count;
+                *ptr.add(2) = num_tests as u64;
+                *(counter_buf.contents() as *mut u32) = 0;
+            }
+
+            let cb = self.queue.new_command_buffer();
+            let enc = cb.new_compute_command_encoder();
+            enc.set_compute_pipeline_state(&pipeline);
+            enc.set_buffer(0, Some(&params_buf), 0);
+            enc.set_buffer(1, Some(&counter_buf), 0);
+            enc.set_buffer(2, Some(&output_buf), 0);
+            enc.dispatch_threads(
+                MTLSize::new(count, 1, 1),
+                MTLSize::new(max_threads as u64, 1, 1),
+            );
+            enc.end_encoding();
+
+            cb.commit();
+            cb.wait_until_completed();
+
+            let found = unsafe { *(counter_buf.contents() as *const u32) } as u64;
+            let ptr = output_buf.contents() as *const u64;
+            for i in 0..found.min(MAX_OUTPUT) as usize {
+                let rule = unsafe { *ptr.add(i) };
+                all_results.push(rule);
+            }
+        }
+
+        all_results.sort_unstable();
+        all_results.dedup();
+        Some(all_results)
+    }
 }
 
 // Thread-local GPU engine singleton for reuse across calls.
@@ -289,3 +355,12 @@ pub fn try_find_bounded_width_rules(
         engine.as_ref()?.find_bounded_width_rules(min_rule, max_rule, k, r, init, steps, max_width)
     })
 }
+
+/// Try to run specialized k=3 r=1 doubler search on GPU.
+/// Returns all rules from 3^19 constrained search space.
+pub fn try_find_doublers_k3r1(num_tests: u32) -> Option<Vec<u64>> {
+    GPU_ENGINE.with(|engine| {
+        engine.as_ref()?.find_doublers_k3r1(num_tests)
+    })
+}
+

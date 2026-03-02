@@ -614,6 +614,59 @@ pub fn find_exact_width_rules_wl(
     )
 }
 
+/// Find k=3, r=1 width-doubling rules using specialized GPU kernel.
+/// Uses analytical constraint reduction: 8 fixed digits, 19 free = 3^19 search.
+/// num_tests = number of doubling tests (7 = full validation).
+pub fn find_doublers_k3r1(num_tests: u32) -> Vec<u64> {
+    // Try GPU fast path (3^19 constrained search)
+    #[cfg(all(target_os = "macos", feature = "gpu"))]
+    if let Some(results) = gpu::try_find_doublers_k3r1(num_tests) {
+        return results;
+    }
+
+    // CPU fallback: brute force over all 3^27 rules with rayon
+    // (Much slower — only used on non-GPU platforms)
+    let max_rule = 3u64.pow(27) - 1;
+    let inits: Vec<CAState> = (0..num_tests as usize)
+        .map(|n| {
+            let w = n + 1;
+            let mut cells = vec![0u8; 81];
+            let center = 40;
+            let start = center - w / 2;
+            for i in 0..n { cells[start + i] = 1; }
+            cells[start + n] = 2;
+            CAState::new(cells, 3)
+        })
+        .collect();
+
+    let target_widths: Vec<usize> = (0..num_tests as usize)
+        .map(|n| (n + 1) * 2)
+        .collect();
+
+    (0..=max_rule)
+        .into_par_iter()
+        .filter(|&rule_number| {
+            if rule_number % 3 != 0 { return false; } // table[0] must be 0
+            let ca = CellularAutomaton::from_rule_number(rule_number, 3, 1);
+            inits.iter().zip(target_widths.iter()).all(|(init, &tw)| {
+                if !ca.is_bounded_width(init, 200, tw + 2) { return false; }
+                let final_state = ca.evolve_final(init, 200);
+                let fw = final_state.active_width();
+                if fw != tw { return false; }
+                // Check all nonzero cells are 1
+                final_state.cells.iter().all(|&c| c == 0 || c == 1)
+            })
+        })
+        .collect()
+}
+
+/// WLL wrapper for find_doublers_k3r1.
+#[wll::export]
+pub fn find_doublers_k3r1_wl(num_tests: u64) -> Vec<u64> {
+    find_doublers_k3r1(num_tests as u32)
+}
+
+
 #[cfg(test)]
 mod tests {
     use super::*;
