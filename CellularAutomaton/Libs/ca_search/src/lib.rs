@@ -614,48 +614,80 @@ pub fn find_exact_width_rules_wl(
     )
 }
 
-/// Find k=3, r=1 width-doubling rules using specialized GPU kernel.
-/// Uses analytical constraint reduction: 8 fixed digits, 19 free = 3^19 search.
-/// num_tests = number of doubling tests (7 = full validation).
+/// Sequential-scan doubler check (matches NKS doubleasymmi.c algorithm).
+/// Uses in-place update (left neighbor already updated) — NOT standard parallel CA.
+/// Returns true if rule doubles width for init {1^(nin-1), 2} → {1^(2*nin)}.
+fn check_doubling_sequential(rule_number: u64, nin: usize) -> bool {
+    let table: Vec<u8> = (0..27)
+        .map(|i| ((rule_number / 3u64.pow(i as u32)) % 3) as u8)
+        .collect();
+
+    let max_steps = 50 * nin * nin; // generous convergence cap
+    let w = 2 * max_steps + 1;
+    let mut a = vec![0u8; w];
+
+    // Init: {1^(nin-1), 2} placed at center
+    let center = max_steps;
+    for i in 0..nin.saturating_sub(1) {
+        a[center + i] = 1;
+    }
+    a[center + nin - 1] = 2;
+
+    for _t in 0..max_steps {
+        let mut changed = false;
+        let mut b = a[0];
+        for i in 1..(w - 1) {
+            let bp = a[i];
+            let bx = table[(b as usize) * 9 + (bp as usize) * 3 + (a[i + 1] as usize)];
+            a[i] = bx;
+            b = bp;
+            if bx != bp {
+                changed = true;
+            }
+        }
+        if !changed {
+            // Converged — verify: left zeros, 2*nin ones, right zeros
+            for i in 1..center {
+                if a[i] != 0 { return false; }
+            }
+            for i in 0..(2 * nin) {
+                if a[center + i] != 1 { return false; }
+            }
+            for i in (center + 2 * nin)..w {
+                if a[i] != 0 { return false; }
+            }
+            return true;
+        }
+    }
+    false
+}
+
+/// Find k=3, r=1 width-doubling rules.
+/// GPU handles tests 1-12 (single pass, 3^20 search space).
+/// CPU handles tests 13+ on survivors if needed.
 pub fn find_doublers_k3r1(num_tests: u32) -> Vec<u64> {
-    // Try GPU fast path (3^19 constrained search)
+    let gpu_max = num_tests.min(12);
+
     #[cfg(all(target_os = "macos", feature = "gpu"))]
-    if let Some(results) = gpu::try_find_doublers_k3r1(num_tests) {
-        return results;
+    {
+        if let Some(mut candidates) = gpu::try_find_doublers_k3r1(gpu_max) {
+            if num_tests > gpu_max {
+                candidates.retain(|&rule| {
+                    (gpu_max as usize + 1..=num_tests as usize)
+                        .all(|nin| check_doubling_sequential(rule, nin))
+                });
+            }
+            return candidates;
+        }
     }
 
-    // CPU fallback: brute force over all 3^27 rules with rayon
-    // (Much slower — only used on non-GPU platforms)
+    // CPU-only fallback
     let max_rule = 3u64.pow(27) - 1;
-    let inits: Vec<CAState> = (0..num_tests as usize)
-        .map(|n| {
-            let w = n + 1;
-            let mut cells = vec![0u8; 81];
-            let center = 40;
-            let start = center - w / 2;
-            for i in 0..n { cells[start + i] = 1; }
-            cells[start + n] = 2;
-            CAState::new(cells, 3)
-        })
-        .collect();
-
-    let target_widths: Vec<usize> = (0..num_tests as usize)
-        .map(|n| (n + 1) * 2)
-        .collect();
-
     (0..=max_rule)
         .into_par_iter()
-        .filter(|&rule_number| {
-            if rule_number % 3 != 0 { return false; } // table[0] must be 0
-            let ca = CellularAutomaton::from_rule_number(rule_number, 3, 1);
-            inits.iter().zip(target_widths.iter()).all(|(init, &tw)| {
-                if !ca.is_bounded_width(init, 200, tw + 2) { return false; }
-                let final_state = ca.evolve_final(init, 200);
-                let fw = final_state.active_width();
-                if fw != tw { return false; }
-                // Check all nonzero cells are 1
-                final_state.cells.iter().all(|&c| c == 0 || c == 1)
-            })
+        .filter(|&rule| {
+            if rule % 3 != 0 { return false; }
+            (1..=num_tests as usize).all(|nin| check_doubling_sequential(rule, nin))
         })
         .collect()
 }

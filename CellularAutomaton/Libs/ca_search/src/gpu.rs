@@ -17,6 +17,7 @@ pub struct GpuSearchEngine {
     exact_width_pipeline: ComputePipelineState,
     matching_pipeline: ComputePipelineState,
     bounded_pipeline: ComputePipelineState,
+    refine_pipeline: ComputePipelineState,
 }
 
 impl GpuSearchEngine {
@@ -36,6 +37,7 @@ impl GpuSearchEngine {
         let exact_width_pipeline = make_pipeline("ca_find_exact_width")?;
         let matching_pipeline = make_pipeline("ca_find_matching")?;
         let bounded_pipeline = make_pipeline("ca_find_bounded")?;
+        let refine_pipeline = make_pipeline("ca_refine_doublers")?;
 
         let queue = device.new_command_queue();
 
@@ -45,6 +47,7 @@ impl GpuSearchEngine {
             exact_width_pipeline,
             matching_pipeline,
             bounded_pipeline,
+            refine_pipeline,
         })
     }
 
@@ -252,7 +255,7 @@ impl GpuSearchEngine {
         };
         let max_threads = pipeline.max_total_threads_per_threadgroup();
 
-        let total: u64 = 1_162_261_467; // 3^19
+        let total: u64 = 3_486_784_401; // 3^20 (7 fixed digits, 20 free)
         let batch_size: u64 = 100_000_000;
         let n_batches = (total + batch_size - 1) / batch_size;
 
@@ -303,6 +306,55 @@ impl GpuSearchEngine {
         all_results.sort_unstable();
         all_results.dedup();
         Some(all_results)
+    }
+
+    /// Refine doubler candidates: run additional NKS tests on a list of rule numbers.
+    fn refine_doublers(&self, candidates: &[u64], start_test: u32, end_test: u32) -> Option<Vec<u64>> {
+        if candidates.is_empty() { return Some(vec![]); }
+
+        let pipeline = &self.refine_pipeline;
+        let count = candidates.len() as u64;
+
+        // Params: [count, start_test, end_test]
+        let params_buf = self.device.new_buffer(24, MTLResourceOptions::StorageModeShared);
+        let input_buf = self.device.new_buffer(count * 8, MTLResourceOptions::StorageModeShared);
+        let counter_buf = self.device.new_buffer(4, MTLResourceOptions::StorageModeShared);
+        let output_buf = self.device.new_buffer(count * 8, MTLResourceOptions::StorageModeShared);
+
+        unsafe {
+            let p = params_buf.contents() as *mut u64;
+            *p = count;
+            *p.add(1) = start_test as u64;
+            *p.add(2) = end_test as u64;
+
+            let inp = input_buf.contents() as *mut u64;
+            for (i, &rule) in candidates.iter().enumerate() {
+                *inp.add(i) = rule;
+            }
+            *(counter_buf.contents() as *mut u32) = 0;
+        }
+
+        let max_threads = pipeline.max_total_threads_per_threadgroup();
+        let cb = self.queue.new_command_buffer();
+        let enc = cb.new_compute_command_encoder();
+        enc.set_compute_pipeline_state(&pipeline);
+        enc.set_buffer(0, Some(&params_buf), 0);
+        enc.set_buffer(1, Some(&input_buf), 0);
+        enc.set_buffer(2, Some(&counter_buf), 0);
+        enc.set_buffer(3, Some(&output_buf), 0);
+        enc.dispatch_threads(
+            MTLSize::new(count, 1, 1),
+            MTLSize::new(max_threads as u64, 1, 1),
+        );
+        enc.end_encoding();
+        cb.commit();
+        cb.wait_until_completed();
+
+        let found = unsafe { *(counter_buf.contents() as *const u32) } as usize;
+        let ptr = output_buf.contents() as *const u64;
+        let mut results: Vec<u64> = (0..found).map(|i| unsafe { *ptr.add(i) }).collect();
+        results.sort_unstable();
+        Some(results)
     }
 }
 
@@ -357,10 +409,15 @@ pub fn try_find_bounded_width_rules(
 }
 
 /// Try to run specialized k=3 r=1 doubler search on GPU.
-/// Returns all rules from 3^19 constrained search space.
 pub fn try_find_doublers_k3r1(num_tests: u32) -> Option<Vec<u64>> {
     GPU_ENGINE.with(|engine| {
         engine.as_ref()?.find_doublers_k3r1(num_tests)
     })
 }
 
+/// Refine doubler candidates with additional GPU tests.
+pub fn try_refine_doublers(candidates: &[u64], start_test: u32, end_test: u32) -> Option<Vec<u64>> {
+    GPU_ENGINE.with(|engine| {
+        engine.as_ref()?.refine_doublers(candidates, start_test, end_test)
+    })
+}

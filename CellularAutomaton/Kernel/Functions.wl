@@ -229,11 +229,9 @@ CellularAutomatonWidthRatioSearch[inits:{__List}, steps_Integer, ratio_, {k_Inte
     CellularAutomatonWidthRatioSearch[inits, steps, ratio, {k, r}, minRule ;; maxRule,
         Max[Length /@ inits]]
 
-(* Specialized fast path: ratio=2, k=3, r=1 full search → GPU-accelerated 3^19 constrained search *)
+(* Specialized fast path: ratio=2, k=3, r=1 → GPU-accelerated doubler search *)
 CellularAutomatonWidthRatioSearch[inits:{__List}, steps_Integer, 2, {3, 1}] :=
-    Module[{numTests = Length[inits]},
-        fromDS @ FindDoublersK3R1Rust[numTests]
-    ]
+    fromDS @ FindDoublersK3R1Rust[Length[inits]]
 
 CellularAutomatonWidthRatioSearch[inits:{__List}, steps_Integer, ratio_, {k_Integer, r_Integer}] :=
     CellularAutomatonWidthRatioSearch[inits, steps, ratio, {k, r},
