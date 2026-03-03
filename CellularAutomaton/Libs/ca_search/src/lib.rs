@@ -718,6 +718,46 @@ pub fn filter_doublers_k3r1_wl(candidate_rules: Vec<i64>, num_tests: u64) -> Vec
     filter_doublers_k3r1(&candidates, num_tests as u32)
 }
 
+/// Test a list of candidate rules: which ones produce target from init after steps?
+/// Returns a Vec of 0/1 (one per candidate), parallel via rayon.
+pub fn test_rules(
+    candidates: &[u64],
+    k: u32,
+    r: u32,
+    initial: &CAState,
+    steps: usize,
+    target: &[u8],
+) -> Vec<u8> {
+    candidates
+        .par_iter()
+        .map(|&rule_number| {
+            let ca = CellularAutomaton::from_rule_number(rule_number, k, r);
+            let final_state = ca.evolve_final(initial, steps);
+            if final_state.cells == target { 1u8 } else { 0u8 }
+        })
+        .collect()
+}
+
+/// WLL wrapper for test_rules.
+#[wll::export]
+pub fn test_rules_wl(
+    candidate_rules: Vec<i64>,
+    k: u32,
+    r: u32,
+    init: Vec<i32>,
+    steps: u64,
+    target: Vec<i32>,
+) -> Vec<i32> {
+    let candidates: Vec<u64> = candidate_rules.iter().map(|&r| r as u64).collect();
+    let init_cells: Vec<u8> = init.iter().map(|&c| c as u8).collect();
+    let target_cells: Vec<u8> = target.iter().map(|&c| c as u8).collect();
+    let initial = CAState::new(init_cells, k);
+    test_rules(&candidates, k, r, &initial, steps as usize, &target_cells)
+        .into_iter()
+        .map(|v| v as i32)
+        .collect()
+}
+
 /// Filter a list of candidate rules by width ratio.
 /// Same logic as find_width_ratio_rules but operates on a provided list instead of a range.
 pub fn filter_width_ratio_rules(

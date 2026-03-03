@@ -25,6 +25,8 @@ CellularAutomatonActiveWidths[init, steps] uses elementary defaults (k=2, r=1)."
 
 CellularAutomatonWidthRatioSearch::usage = "CellularAutomatonWidthRatioSearch[inits, steps, ratio, {k, r}, ruleRange, maxWidth] finds rules where the final active width equals ratio \[Times] input width for ALL initial conditions in inits. Fully parallelized.\nCellularAutomatonWidthRatioSearch[inits, steps, ratio, {k, r}] searches all rules.\nCellularAutomatonWidthRatioSearch[inits, steps, ratio] uses elementary defaults."
 
+CellularAutomatonTest::usage = "CellularAutomatonTest[rule, init, steps, target, {k, r}] returns True if the CA produces target from init.\nCellularAutomatonTest[{rule1, ...}, init, steps, target, {k, r}] returns the subset of rules that pass (parallel)."
+
 CellularAutomatonPlot
 
 
@@ -95,6 +97,7 @@ FindExactWidthRulesRust := functions["find_exact_width_rules_wl"]
 FindDoublersK3R1Rust := functions["find_doublers_k3r1_wl"]
 FilterWidthRatioRulesRust := functions["filter_width_ratio_rules_wl"]
 FilterDoublersK3R1Rust := functions["filter_doublers_k3r1_wl"]
+TestRulesRust := functions["test_rules_wl"]
 
 (* Helper: convert WL list to DataStore for WLL Vec<T> arguments *)
 toDS[list_List] := Developer`DataStore @@ list
@@ -152,6 +155,21 @@ CellularAutomatonSearch[init_List, steps_Integer, target_List] :=
 
 CellularAutomatonSearch[init_List, steps_Integer, target_List, {k_Integer, r_Integer}, minRule_Integer ;; maxRule_Integer] :=
     fromDS @ FindMatchingRulesRust[minRule, maxRule, k, r, toDS[init], steps, toDS[target]]
+
+
+(* CellularAutomatonTest: check init -> target for specific rules *)
+
+CellularAutomatonTest[rule_Integer, init_List, steps_Integer, target_List, {k_Integer, r_Integer}] :=
+    CellularAutomatonOutput[rule, k, r, init, steps] === target
+
+CellularAutomatonTest[rule_Integer, init_List, steps_Integer, target_List] :=
+    CellularAutomatonTest[rule, init, steps, target, {2, 1}]
+
+CellularAutomatonTest[rules_List, init_List, steps_Integer, target_List, {k_Integer, r_Integer}] :=
+    Pick[rules, fromDS @ TestRulesRust[toDS[rules], k, r, toDS[init], steps, toDS[target]], 1]
+
+CellularAutomatonTest[rules_List, init_List, steps_Integer, target_List] :=
+    CellularAutomatonTest[rules, init, steps, target, {2, 1}]
 
 
 (* CellularAutomatonSearch: width-target overloads *)
