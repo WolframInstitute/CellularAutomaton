@@ -107,7 +107,7 @@ fromDS[ds_] := List @@ ds
 (* ---- Public API ---- *)
 
 CellularAutomatonRuleCount[k_Integer : 2, r_Integer : 1] :=
-    RuleCountRust[k, r]
+    k ^ (k ^ (2 r + 1))
 
 
 (* CellularAutomatonOutput: final state *)
