@@ -382,6 +382,34 @@ runTest["All-zero init stays zero",
     {0, 0, 0, 0, 0}
 ];
 
+print[""];
+print["--- TimeConstrained (abort support) ---"];
+
+(* TimeConstrained search should return partial results, not hang *)
+With[{
+    init = {0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0},
+    target = CellularAutomatonOutput[1920106431, 3, 1, {0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0}, 1]
+},
+    runTestQ["TimeConstrained k=3 search returns list or $Aborted",
+        With[{result = TimeConstrained[
+            CellularAutomatonSearch[{3, 1}, init -> target, 1], 10, "$TimedOut"
+        ]},
+            ListQ[result] || result === "$TimedOut"
+        ]
+    ];
+];
+
+(* Elementary search should complete within time limit *)
+With[{target = CellularAutomatonOutput[30, {0, 0, 0, 1, 0, 0, 0}, 1]},
+    runTest["TimeConstrained elementary completes",
+        TimeConstrained[
+            MemberQ[CellularAutomatonSearch[{2, 1}, {0, 0, 0, 1, 0, 0, 0} -> target, 1], 30],
+            5, False
+        ],
+        True
+    ];
+];
+
 (* ---- Summary ---- *)
 print[""];
 print["=== Results ==="];

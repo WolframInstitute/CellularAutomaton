@@ -5,10 +5,11 @@ use metal::*;
 use std::mem;
 
 use crate::models::CAState;
+use crate::is_aborted;
 
 const SHADER_SRC: &str = include_str!("../shaders/ca_search.metal");
 const MAX_OUTPUT: u64 = 1_000_000;
-const BATCH_SIZE: u64 = 50_000_000; // 50M rules per GPU dispatch
+const BATCH_SIZE: u64 = 1_000_000_000; // 1B rules per GPU dispatch
 
 /// Metal GPU search engine. Caches compiled pipelines for reuse.
 pub struct GpuSearchEngine {
@@ -117,6 +118,7 @@ impl GpuSearchEngine {
         let mut all_results: Vec<u64> = Vec::new();
 
         for batch in 0..n_batches {
+            if is_aborted() { break; }
             let start = min_rule + batch * BATCH_SIZE;
             let count = BATCH_SIZE.min(max_rule + 1 - start);
 
@@ -209,6 +211,7 @@ impl GpuSearchEngine {
         let mut all_results: Vec<u64> = Vec::new();
 
         for batch in 0..n_batches {
+            if is_aborted() { break; }
             let start = min_rule + batch * BATCH_SIZE;
             let count = BATCH_SIZE.min(max_rule + 1 - start);
 
@@ -290,6 +293,7 @@ impl GpuSearchEngine {
         let mut all_results: Vec<u64> = Vec::new();
 
         for batch in 0..n_batches {
+            if is_aborted() { break; }
             let start = min_rule + batch * BATCH_SIZE;
             let count = BATCH_SIZE.min(max_rule + 1 - start);
 

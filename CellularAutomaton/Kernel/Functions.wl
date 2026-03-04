@@ -96,6 +96,7 @@ FindDoublersK3R1Rust := functions["find_doublers_k3r1_wl"]
 FilterWidthRatioRulesRust := functions["filter_width_ratio_rules_wl"]
 FilterDoublersK3R1Rust := functions["filter_doublers_k3r1_wl"]
 TestRulesRust := functions["test_rules_wl"]
+AbortSearchRust := functions["abort_search_wl"]
 
 (* Helper: convert WL list to DataStore for WLL Vec<T> arguments *)
 toDS[list_List] := Developer`DataStore @@ list
@@ -153,20 +154,61 @@ CellularAutomatonSearch[{All, k_Integer, r_Integer}, args___] :=
 
 (* === Core: {k, r} full-space search === *)
 
+(* Chunk size for WL-level search batching (enables TimeConstrained interruption) *)
+(* Each chunk = ~1 GPU dispatch of 1B rules, takes 2-5s max *)
+$CellularAutomatonSearchChunkSize = 1000000000; (* 1B rules per WL chunk *)
+
+(* Chunked search: splits large rule spaces for interruptibility *)
+chunkedMatchSearch[minRule_, maxRule_, k_, r_, initDS_, steps_, targetDS_] :=
+    Module[{results = {}, start = minRule, chunkEnd},
+        If[maxRule - minRule < $CellularAutomatonSearchChunkSize,
+            (* Small search: single call *)
+            Return[fromDS @ FindMatchingRulesRust[minRule, maxRule, k, r, initDS, steps, targetDS]]
+        ];
+        CheckAbort[
+            While[start <= maxRule,
+                chunkEnd = Min[start + $CellularAutomatonSearchChunkSize - 1, maxRule];
+                results = Join[results, fromDS @ FindMatchingRulesRust[start, chunkEnd, k, r, initDS, steps, targetDS]];
+                start = chunkEnd + 1;
+            ];
+            results,
+            AbortSearchRust[];
+            results (* return partial results on abort *)
+        ]
+    ]
+
 (* Single target *)
 CellularAutomatonSearch[{k_Integer, r_Integer}, Rule[init_List, target_List], steps_Integer] :=
-    fromDS @ FindMatchingRulesRust[0, CellularAutomatonRuleCount[k, r] - 1, k, r, toDS[init], steps, toDS[target]]
+    chunkedMatchSearch[0, CellularAutomatonRuleCount[k, r] - 1, k, r, toDS[init], steps, toDS[target]]
 
 CellularAutomatonSearch[{k_Integer, r_Integer}, Rule[init_List, target_List], steps_Integer, minRule_Integer ;; maxRule_Integer] :=
-    fromDS @ FindMatchingRulesRust[minRule, maxRule, k, r, toDS[init], steps, toDS[target]]
+    chunkedMatchSearch[minRule, maxRule, k, r, toDS[init], steps, toDS[target]]
+
+(* Chunked width search: splits large rule spaces for interruptibility *)
+chunkedWidthSearch[minRule_, maxRule_, k_, r_, initDS_, nInits_, steps_, targetWidth_] :=
+    Module[{results = {}, start = minRule, chunkEnd},
+        If[maxRule - minRule < $CellularAutomatonSearchChunkSize,
+            Return[fromDS @ FindExactWidthRulesRust[minRule, maxRule, k, r, initDS, nInits, steps, targetWidth]]
+        ];
+        CheckAbort[
+            While[start <= maxRule,
+                chunkEnd = Min[start + $CellularAutomatonSearchChunkSize - 1, maxRule];
+                results = Join[results, fromDS @ FindExactWidthRulesRust[start, chunkEnd, k, r, initDS, nInits, steps, targetWidth]];
+                start = chunkEnd + 1;
+            ];
+            results,
+            AbortSearchRust[];
+            results
+        ]
+    ]
 
 (* Width target *)
 CellularAutomatonSearch[{k_Integer, r_Integer}, Rule[init_List, targetWidth_Integer], steps_Integer] :=
-    fromDS @ FindExactWidthRulesRust[0, CellularAutomatonRuleCount[k, r] - 1, k, r,
+    chunkedWidthSearch[0, CellularAutomatonRuleCount[k, r] - 1, k, r,
         toDS[init], 1, steps, targetWidth]
 
 CellularAutomatonSearch[{k_Integer, r_Integer}, Rule[init_List, targetWidth_Integer], steps_Integer, minRule_Integer ;; maxRule_Integer] :=
-    fromDS @ FindExactWidthRulesRust[minRule, maxRule, k, r,
+    chunkedWidthSearch[minRule, maxRule, k, r,
         toDS[init], 1, steps, targetWidth]
 
 (* Multiple inits -> width target *)
