@@ -5,7 +5,7 @@ use metal::*;
 use std::mem;
 
 use crate::models::CAState;
-use crate::is_aborted;
+use wolfram_library_link as wll;
 
 const SHADER_SRC: &str = include_str!("../shaders/ca_search.metal");
 const MAX_OUTPUT: u64 = 1_000_000;
@@ -118,7 +118,7 @@ impl GpuSearchEngine {
         let mut all_results: Vec<u64> = Vec::new();
 
         for batch in 0..n_batches {
-            if is_aborted() { break; }
+            if wll::aborted() { break; }
             let start = min_rule + batch * BATCH_SIZE;
             let count = BATCH_SIZE.min(max_rule + 1 - start);
 
@@ -211,7 +211,7 @@ impl GpuSearchEngine {
         let mut all_results: Vec<u64> = Vec::new();
 
         for batch in 0..n_batches {
-            if is_aborted() { break; }
+            if wll::aborted() { break; }
             let start = min_rule + batch * BATCH_SIZE;
             let count = BATCH_SIZE.min(max_rule + 1 - start);
 
@@ -293,7 +293,7 @@ impl GpuSearchEngine {
         let mut all_results: Vec<u64> = Vec::new();
 
         for batch in 0..n_batches {
-            if is_aborted() { break; }
+            if wll::aborted() { break; }
             let start = min_rule + batch * BATCH_SIZE;
             let count = BATCH_SIZE.min(max_rule + 1 - start);
 
@@ -364,6 +364,7 @@ impl GpuSearchEngine {
         let mut all_results: Vec<u64> = Vec::new();
 
         for batch in 0..n_batches {
+            if wll::aborted() { break; }
             let start = batch * batch_size;
             let count = batch_size.min(total - start);
 

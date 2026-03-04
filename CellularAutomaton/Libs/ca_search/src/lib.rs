@@ -3,23 +3,12 @@ use wolfram_library_link as wll;
 wll::generate_loader!(rustlink_autodiscover);
 
 use rayon::prelude::*;
-use std::sync::atomic::{AtomicBool, Ordering};
 
 pub mod models;
 #[cfg(all(target_os = "macos", feature = "gpu"))]
 pub mod gpu;
 
 use crate::models::{CAState, CellularAutomaton};
-
-/// Global abort flag: set to true to cancel running searches.
-/// Checked between GPU batches and CPU rayon partitions.
-pub static ABORT_FLAG: AtomicBool = AtomicBool::new(false);
-
-/// Check if abort has been requested.
-#[inline(always)]
-pub fn is_aborted() -> bool {
-    ABORT_FLAG.load(Ordering::Relaxed)
-}
 
 // =============================================================================
 // Core functions
@@ -75,7 +64,7 @@ pub fn ca_output_table_parallel(
 
 /// Search for rules whose final state matches a target pattern.
 /// Returns Vec of matching rule numbers. GPU-accelerated on macOS, CPU fallback.
-/// Checks ABORT_FLAG between batches/partitions for early exit.
+/// Checks wll::aborted() between batches/partitions for early exit.
 pub fn find_matching_rules(
     min_rule: u64,
     max_rule: u64,
@@ -85,7 +74,6 @@ pub fn find_matching_rules(
     steps: usize,
     target_cells: &[u8],
 ) -> Vec<u64> {
-    ABORT_FLAG.store(false, Ordering::Relaxed);
 
     let initial = CAState::new(initial_cells.to_vec(), k);
     #[allow(unused_variables)]
@@ -103,7 +91,7 @@ pub fn find_matching_rules(
     (min_rule..=max_rule)
         .into_par_iter()
         .filter(|&rule_number| {
-            if is_aborted() { return false; }
+            if wll::aborted() { return false; }
             let ca = CellularAutomaton::from_rule_number(rule_number, k, r);
             let final_state = ca.evolve_final(&initial, steps);
             final_state.cells == target
@@ -495,12 +483,7 @@ pub fn ca_output_table_parallel_wl(
     ca_output_table_parallel(min_rule, max_rule, k, r, &cells, steps as usize)
 }
 
-/// Signal the search engine to abort. Called from WL CheckAbort/TimeConstrained.
-#[wll::export]
-pub fn abort_search_wl() -> u64 {
-    ABORT_FLAG.store(true, Ordering::Relaxed);
-    1
-}
+
 
 /// Search for matching rules (parallelized).
 /// Returns a list of rule numbers whose final state matches the target.
