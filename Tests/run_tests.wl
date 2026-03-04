@@ -145,6 +145,44 @@ With[{target = CellularAutomatonOutput[110, {0, 0, 0, 1, 0, 0, 0}, 1]},
     ];
 ];
 
+(* {All, k, r} alias *)
+With[{target = CellularAutomatonOutput[30, {0, 0, 0, 1, 0, 0, 0}, 1]},
+    runTestQ["{All, k, r} alias works",
+        MemberQ[CellularAutomatonSearch[{All, 2, 1}, {0, 0, 0, 1, 0, 0, 0} -> target, 1], 30]
+    ];
+];
+
+(* Candidate list rulespec *)
+With[{
+    init = {0, 0, 0, 1, 0, 0, 0},
+    target = CellularAutomatonOutput[30, {0, 0, 0, 1, 0, 0, 0}, 1]
+},
+    runTest["Candidate list filters correctly",
+        CellularAutomatonSearch[{{30, 90, 110}, 2, 1}, init -> target, 1],
+        {30}
+    ];
+];
+
+(* Multi-pair sieve *)
+With[{
+    init1 = {0, 0, 0, 1, 0, 0, 0},
+    target1 = CellularAutomatonOutput[30, {0, 0, 0, 1, 0, 0, 0}, 1],
+    init2 = {0, 0, 1, 0, 0, 0, 0},
+    target2 = CellularAutomatonOutput[30, {0, 0, 1, 0, 0, 0, 0}, 1]
+},
+    runTestQ["Multi-pair sieve finds rule 30",
+        MemberQ[
+            CellularAutomatonSearch[{2, 1}, {init1 -> target1, init2 -> target2}, 1],
+            30
+        ]
+    ];
+    (* Sieve should narrow down results *)
+    runTestQ["Sieve narrows results",
+        Length[CellularAutomatonSearch[{2, 1}, {init1 -> target1, init2 -> target2}, 1]] <=
+        Length[CellularAutomatonSearch[{2, 1}, init1 -> target1, 1]]
+    ];
+];
+
 print[""];
 print["--- CellularAutomatonOutputTable ---"];
 
