@@ -419,13 +419,11 @@ CellularAutomatonWidthRatioSearch[inits:{__List}, steps_Integer, ratio_, {k_Inte
     CellularAutomatonWidthRatioSearch[inits, steps, ratio, {k, r}, minRule ;; maxRule,
         Max[Length /@ inits]]
 
-(* Helper: check if inits are NKS-standard center-cell patterns *)
-isNKSPattern[init_List] := With[{mid = Ceiling[Length[init] / 2]},
-    AllTrue[Delete[init, mid], # === 0 &] && init[[mid]] === 1
-]
+(* Helper: check if init is NKS-standard doubler pattern {1,...,1,2} *)
+isNKSDoublerPattern[init_List] := init === Append[ConstantArray[1, Length[init] - 1], 2]
 
 (* Specialized fast path: ratio=2, k=3, r=1 with NKS-standard patterns *)
-CellularAutomatonWidthRatioSearch[inits:{__List}, steps_Integer, 2, {3, 1}] /; AllTrue[inits, isNKSPattern] :=
+CellularAutomatonWidthRatioSearch[inits:{__List}, steps_Integer, 2, {3, 1}] /; AllTrue[inits, isNKSDoublerPattern] :=
     fromDS @ FindDoublersK3R1Rust[Max[Length /@ inits]]
 
 (* Non-NKS inits, ratio=2, k=3, r=1: use NKS doubler as pre-filter, then verify with actual inits *)
@@ -435,7 +433,7 @@ CellularAutomatonWidthRatioSearch[inits:{__List}, steps_Integer, 2, {3, 1}] :=
     ]
 
 (* Specialized sieve: ratio=2, k=3, r=1, NKS patterns *)
-CellularAutomatonWidthRatioSearch[inits:{__List}, steps_Integer, 2, {3, 1}, rules_List] /; AllTrue[inits, isNKSPattern] :=
+CellularAutomatonWidthRatioSearch[inits:{__List}, steps_Integer, 2, {3, 1}, rules_List] /; AllTrue[inits, isNKSDoublerPattern] :=
     fromDS @ FilterDoublersK3R1Rust[toDS[rules], Max[Length /@ inits]]
 
 (* Specialized sieve: ratio=2, k=3, r=1, non-NKS patterns — use general filter *)
