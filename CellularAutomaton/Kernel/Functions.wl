@@ -223,9 +223,16 @@ CellularAutomatonSearch[{candidates_List, k_Integer, r_Integer}, Rule[init_List,
 
 (* === Multi-pair sieve: {init1->target1, init2->target2, ...} === *)
 
-(* NOTE: NKS doubler kernel (FindDoublersK3R1Rust) uses sequential-scan updating,    *)
-(* which differs from standard parallel CellularAutomaton. Use CellularAutomatonWidthRatioSearch *)
-(* for NKS-style doubler search. Here we use standard parallel CA sieve.              *)
+(* Helper: detect if all pairs are width-doublers *)
+isDoublerPattern[pairs:{__Rule}] :=
+    AllTrue[pairs, Length[Last[#]] === 2 * Length[First[#]] &]
+
+(* k=3, r=1 doubler optimization: use NKS sequential-scan GPU kernel directly *)
+(* NOTE: This finds NKS-style doublers (sequential-scan update), not standard parallel CA *)
+CellularAutomatonSearch[{3, 1}, pairs:{__Rule}, steps_Integer] /; isDoublerPattern[pairs] :=
+    With[{maxN = Max[Length[First[#]] & /@ pairs]},
+        fromDS @ FindDoublersK3R1Rust[maxN]
+    ]
 
 (* {k, r} with pair list: search all rules on first pair, sieve rest *)
 CellularAutomatonSearch[{k_Integer, r_Integer}, pairs:{__Rule}, steps_Integer] :=
