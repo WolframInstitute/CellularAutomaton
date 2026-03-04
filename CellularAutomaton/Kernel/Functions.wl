@@ -223,25 +223,9 @@ CellularAutomatonSearch[{candidates_List, k_Integer, r_Integer}, Rule[init_List,
 
 (* === Multi-pair sieve: {init1->target1, init2->target2, ...} === *)
 
-(* Helper: detect if all pairs are width-doublers *)
-isDoublerPattern[pairs:{__Rule}] :=
-    AllTrue[pairs, Length[Last[#]] === 2 * Length[First[#]] &]
-
-(* k=3, r=1 doubler optimization: use specialized kernel as first step *)
-CellularAutomatonSearch[{3, 1}, pairs:{__Rule}, steps_Integer] /; isDoublerPattern[pairs] :=
-    With[{maxN = Max[Length[First[#]] & /@ pairs]},
-        With[{candidates = fromDS @ FindDoublersK3R1Rust[maxN]},
-            Fold[CellularAutomatonTest[#1, #2, steps, {3, 1}] &, candidates, pairs]
-        ]
-    ]
-
-(* Candidate list, k=3, r=1 with doubler pairs: use specialized filter *)
-CellularAutomatonSearch[{candidates_List, 3, 1}, pairs:{__Rule}, steps_Integer] /; isDoublerPattern[pairs] :=
-    With[{maxN = Max[Length[First[#]] & /@ pairs]},
-        With[{filtered = fromDS @ FilterDoublersK3R1Rust[toDS[candidates], maxN]},
-            Fold[CellularAutomatonTest[#1, #2, steps, {3, 1}] &, filtered, pairs]
-        ]
-    ]
+(* NOTE: NKS doubler kernel (FindDoublersK3R1Rust) uses sequential-scan updating,    *)
+(* which differs from standard parallel CellularAutomaton. Use CellularAutomatonWidthRatioSearch *)
+(* for NKS-style doubler search. Here we use standard parallel CA sieve.              *)
 
 (* {k, r} with pair list: search all rules on first pair, sieve rest *)
 CellularAutomatonSearch[{k_Integer, r_Integer}, pairs:{__Rule}, steps_Integer] :=
