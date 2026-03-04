@@ -167,6 +167,28 @@ impl CellularAutomaton {
         (k as u64).pow(num_neighborhoods as u32)
     }
 
+    /// Convert the current rule table back to a BigUint rule number.
+    pub fn to_rule_number_bigint(&self) -> num_bigint::BigUint {
+        use num_bigint::BigUint;
+        let k_big = BigUint::from(self.k);
+        let mut result = BigUint::from(0u32);
+        let mut power = BigUint::from(1u32);
+        for &entry in &self.rule_table {
+            result += BigUint::from(entry as u32) * &power;
+            power *= &k_big;
+        }
+        result
+    }
+
+    /// Construct a CA directly from a random lookup table (no BigInt decode needed).
+    pub fn from_table(table: Vec<u8>, k: u32, r: u32) -> Self {
+        CellularAutomaton {
+            rule_table: table,
+            k,
+            r,
+        }
+    }
+
     /// Compute the neighborhood index for position `pos` in `cells` with wrapping boundary.
     fn neighborhood_index(&self, cells: &[u8], pos: usize) -> usize {
         let width = cells.len();

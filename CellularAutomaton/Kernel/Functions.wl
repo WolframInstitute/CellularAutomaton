@@ -99,6 +99,8 @@ TestRulesRust := functions["test_rules_wl"]
 RunCAFinalBigIntRust := functions["run_ca_final_bigint_wl"]
 RunCABigIntRust := functions["run_ca_bigint_wl"]
 TestRulesBigIntRust := functions["test_rules_bigint_wl"]
+RandomSearchRust := functions["random_search_wl"]
+RandomSieveRust := functions["random_sieve_wl"]
 
 (* Helper: convert WL list to DataStore for WLL Vec<T> arguments *)
 toDS[list_List] := Developer`DataStore @@ list
@@ -197,6 +199,28 @@ CellularAutomatonSearch[{k_Integer, r_Integer}, Rule[inits:{__List}, targetWidth
 (* Span → range of rule numbers *)
 CellularAutomatonSearch[{span_Span, k_Integer, r_Integer}, target_, steps_Integer] :=
     CellularAutomatonSearch[{Range @@ span, k, r}, target, steps]
+
+(* seed -> n with BigInt rules (k>=4): use Rust-native random generation + single-pair test *)
+CellularAutomatonSearch[{Rule[seed_, n_Integer], k_Integer, r_Integer}, Rule[init_List, target_List], steps_Integer] /;
+        CellularAutomatonRuleCount[k, r] > $MaxRustRuleNumber :=
+    If[Length[init] === Length[target],
+        ToExpression /@ fromDS @ RandomSearchRust[n, seed, k, r, toDS[init], steps, toDS[target]],
+        With[{padWidth = Max[Length[init], Length[target]] + 2 * steps + 2},
+            With[{paddedInit = padCenter[init, padWidth, k],
+                  paddedTarget = padCenter[target, padWidth, k]},
+                ToExpression /@ fromDS @ RandomSearchRust[n, seed, k, r, toDS[paddedInit], steps, toDS[paddedTarget]]
+            ]
+        ]
+    ]
+
+(* seed -> n with BigInt rules, multi-pair sieve: first pair via RandomSearch, rest via CellularAutomatonTest *)
+CellularAutomatonSearch[{Rule[seed_, n_Integer], k_Integer, r_Integer}, pairs:{__Rule}, steps_Integer] /;
+        CellularAutomatonRuleCount[k, r] > $MaxRustRuleNumber :=
+    With[{candidates = CellularAutomatonSearch[{seed -> n, k, r}, First[pairs], steps]},
+        If[Length[pairs] === 1, candidates,
+            Fold[CellularAutomatonTest[#1, #2, steps, {k, r}] &, candidates, Rest[pairs]]
+        ]
+    ]
 
 (* seed -> n → random sample of n rules, chunked to avoid huge allocations *)
 $MaxRandomChunk = 10000000; (* 10M rules per chunk *)
