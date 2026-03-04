@@ -11,7 +11,9 @@ name = "CellularAutomaton"
 PacletDirectoryLoad[name]
 paclet = PacletObject[publisher <> "/" <> name]
 
-CargoCollect[ParentDirectory[paclet["Location"]], FileNameJoin[name, "Binaries"]]
+DeleteDirectory[FileNameJoin[{name, "Binaries"}], DeleteContents -> True]
+DeleteDirectory[FileNameJoin[{name, "Libs", "target"}], DeleteContents -> True]
+CargoCollect[ParentDirectory[paclet["Location"]], FileNameJoin[{name, "Binaries"}]]
 pacletFile = CreatePacletArchive[name]
 
 Echo[StringTemplate["Paclet `` has size ``"][pacletFile, FileSize[pacletFile]]]

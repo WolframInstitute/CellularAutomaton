@@ -97,6 +97,7 @@ FilterWidthRatioRulesRust := functions["filter_width_ratio_rules_wl"]
 FilterDoublersK3R1Rust := functions["filter_doublers_k3r1_wl"]
 TestRulesRust := functions["test_rules_wl"]
 RunCAFinalBigIntRust := functions["run_ca_final_bigint_wl"]
+RunCABigIntRust := functions["run_ca_bigint_wl"]
 TestRulesBigIntRust := functions["test_rules_bigint_wl"]
 
 (* Helper: convert WL list to DataStore for WLL Vec<T> arguments *)
@@ -135,9 +136,16 @@ CellularAutomatonOutput[rule_Integer, width_Integer, steps_Integer] := With[{
 
 (* CellularAutomatonEvolution: full spacetime *)
 
-CellularAutomatonEvolution[rule_Integer, k_Integer, r_Integer, init_List, steps_Integer] :=
+CellularAutomatonEvolution[rule_Integer, k_Integer, r_Integer, init_List, steps_Integer] /; rule <= $MaxRustRuleNumber :=
     Partition[
         fromDS @ RunCARust[rule, k, r, toDS[init], steps],
+        Length[init]
+    ]
+
+(* BigInt path for evolution *)
+CellularAutomatonEvolution[rule_Integer, k_Integer, r_Integer, init_List, steps_Integer] :=
+    Partition[
+        fromDS @ RunCABigIntRust[ToString[rule], k, r, toDS[init], steps],
         Length[init]
     ]
 

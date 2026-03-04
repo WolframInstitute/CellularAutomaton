@@ -898,6 +898,28 @@ mod tests {
 // BigInt WLL exports (for k >= 4 where rule numbers exceed u64)
 // =============================================================================
 
+/// Run a CA with a BigInt rule number (passed as string) and return flat spacetime grid.
+/// WL reshapes with Partition[result, width].
+#[wll::export]
+pub fn run_ca_bigint_wl(
+    rule_number_str: String,
+    k: u32,
+    r: u32,
+    initial_cells: Vec<i32>,
+    steps: u64,
+) -> Vec<i32> {
+    use num_bigint::BigUint;
+    let rule_number: BigUint = match rule_number_str.parse::<BigUint>() {
+        Ok(v) => v,
+        Err(_) => return Vec::new(),
+    };
+    let cells: Vec<u8> = initial_cells.iter().map(|&c| c as u8).collect();
+    let ca = CellularAutomaton::from_rule_number_bigint(&rule_number, k, r);
+    let initial = CAState::new(cells, k);
+    let history = ca.evolve(&initial, steps as usize);
+    history.into_iter().flat_map(|s| s.cells).map(|c| c as i32).collect()
+}
+
 /// Run a CA with a BigInt rule number (passed as string) and return just the final state.
 #[wll::export]
 pub fn run_ca_final_bigint_wl(
