@@ -64,22 +64,48 @@ impl GpuSearchEngine {
         r == 1 && k <= 4 && tape_width <= 256
     }
 
-    /// Dispatch a batched GPU search and collect results.
-    fn dispatch_search(
+    /// Create a Metal buffer from init cells.
+    fn make_init_buffer(&self, init: &CAState) -> Buffer {
+        let cells = &init.cells;
+        let buf = self.device.new_buffer(
+            cells.len() as u64,
+            MTLResourceOptions::StorageModeShared,
+        );
+        unsafe {
+            let ptr = buf.contents() as *mut u8;
+            for (i, &c) in cells.iter().enumerate() {
+                *ptr.add(i) = c;
+            }
+        }
+        buf
+    }
+
+    /// Find rules where final active width == target_width.
+    /// Optimized: pre-allocates all buffers once, reuses across batches.
+    pub fn find_exact_width_rules(
         &self,
-        pipeline: &ComputePipelineState,
         min_rule: u64,
         max_rule: u64,
-        params: &[u64],
-        init_buf: &Buffer,
-        extra_buf: Option<&Buffer>,
-    ) -> Vec<u64> {
-        let total = max_rule - min_rule + 1;
-        let n_batches = (total + BATCH_SIZE - 1) / BATCH_SIZE;
+        k: u32,
+        r: u32,
+        init: &CAState,
+        steps: usize,
+        target_width: usize,
+    ) -> Option<Vec<u64>> {
+        if !Self::is_supported(k, r, init.cells.len()) {
+            return None;
+        }
+
+        let pipeline = &self.exact_width_pipeline;
         let max_threads = pipeline.max_total_threads_per_threadgroup();
 
+        let total = max_rule - min_rule + 1;
+        let n_batches = (total + BATCH_SIZE - 1) / BATCH_SIZE;
+
+        let init_buf = self.make_init_buffer(init);
+        // params: [start_rule, count, k, tape_width, steps, target_width]
         let params_buf = self.device.new_buffer(
-            (params.len() * mem::size_of::<u64>()) as u64,
+            6 * mem::size_of::<u64>() as u64,
             MTLResourceOptions::StorageModeShared,
         );
         let counter_buf = self.device.new_buffer(4, MTLResourceOptions::StorageModeShared);
@@ -94,16 +120,14 @@ impl GpuSearchEngine {
             let start = min_rule + batch * BATCH_SIZE;
             let count = BATCH_SIZE.min(max_rule + 1 - start);
 
-            // Update params: params[0] = start_rule, params[1] = count
-            let mut batch_params = params.to_vec();
-            batch_params[0] = start;
-            batch_params[1] = count;
-
             unsafe {
                 let ptr = params_buf.contents() as *mut u64;
-                for (i, &v) in batch_params.iter().enumerate() {
-                    *ptr.add(i) = v;
-                }
+                *ptr.add(0) = start;
+                *ptr.add(1) = count;
+                *ptr.add(2) = k as u64;
+                *ptr.add(3) = init.cells.len() as u64;
+                *ptr.add(4) = steps as u64;
+                *ptr.add(5) = target_width as u64;
                 *(counter_buf.contents() as *mut u32) = 0;
             }
 
@@ -111,12 +135,9 @@ impl GpuSearchEngine {
             let enc = cb.new_compute_command_encoder();
             enc.set_compute_pipeline_state(pipeline);
             enc.set_buffer(0, Some(&params_buf), 0);
-            enc.set_buffer(1, Some(init_buf), 0);
+            enc.set_buffer(1, Some(&init_buf), 0);
             enc.set_buffer(2, Some(&counter_buf), 0);
             enc.set_buffer(3, Some(&output_buf), 0);
-            if let Some(extra) = extra_buf {
-                enc.set_buffer(4, Some(extra), 0);
-            }
             enc.dispatch_threads(
                 MTLSize::new(count, 1, 1),
                 MTLSize::new(max_threads as u64, 1, 1),
@@ -136,54 +157,11 @@ impl GpuSearchEngine {
 
         all_results.sort_unstable();
         all_results.dedup();
-        all_results
-    }
-
-    /// Create a Metal buffer from init cells.
-    fn make_init_buffer(&self, init: &CAState) -> Buffer {
-        let cells = &init.cells;
-        let buf = self.device.new_buffer(
-            cells.len() as u64,
-            MTLResourceOptions::StorageModeShared,
-        );
-        unsafe {
-            let ptr = buf.contents() as *mut u8;
-            for (i, &c) in cells.iter().enumerate() {
-                *ptr.add(i) = c;
-            }
-        }
-        buf
-    }
-
-    /// Find rules where final active width == target_width.
-    pub fn find_exact_width_rules(
-        &self,
-        min_rule: u64,
-        max_rule: u64,
-        k: u32,
-        r: u32,
-        init: &CAState,
-        steps: usize,
-        target_width: usize,
-    ) -> Option<Vec<u64>> {
-        if !Self::is_supported(k, r, init.cells.len()) {
-            return None;
-        }
-
-        let init_buf = self.make_init_buffer(init);
-        // params: start_rule, count, k, tape_width, steps, target_width
-        let params = vec![0u64, 0, k as u64, init.cells.len() as u64, steps as u64, target_width as u64];
-
-        Some(self.dispatch_search(
-            &self.exact_width_pipeline,
-            min_rule, max_rule,
-            &params,
-            &init_buf,
-            None,
-        ))
+        Some(all_results)
     }
 
     /// Find rules where final state matches target exactly.
+    /// Optimized: pre-allocates all buffers once, reuses across batches.
     pub fn find_matching_rules(
         &self,
         min_rule: u64,
@@ -198,31 +176,85 @@ impl GpuSearchEngine {
             return None;
         }
 
+        let pipeline = &self.matching_pipeline;
+        let max_threads = pipeline.max_total_threads_per_threadgroup();
+
+        let total = max_rule - min_rule + 1;
+        let n_batches = (total + BATCH_SIZE - 1) / BATCH_SIZE;
+
+        // Pre-allocate all buffers once
         let init_buf = self.make_init_buffer(init);
-        let target_cells = &target.cells;
         let target_buf = self.device.new_buffer(
-            target_cells.len() as u64,
+            target.cells.len() as u64,
             MTLResourceOptions::StorageModeShared,
         );
         unsafe {
             let ptr = target_buf.contents() as *mut u8;
-            for (i, &c) in target_cells.iter().enumerate() {
+            for (i, &c) in target.cells.iter().enumerate() {
                 *ptr.add(i) = c;
             }
         }
 
-        let params = vec![0u64, 0, k as u64, init.cells.len() as u64, steps as u64];
+        // params: [start_rule, count, k, tape_width, steps]
+        let params_buf = self.device.new_buffer(
+            5 * mem::size_of::<u64>() as u64,
+            MTLResourceOptions::StorageModeShared,
+        );
+        let counter_buf = self.device.new_buffer(4, MTLResourceOptions::StorageModeShared);
+        let output_buf = self.device.new_buffer(
+            MAX_OUTPUT * 8,
+            MTLResourceOptions::StorageModeShared,
+        );
 
-        Some(self.dispatch_search(
-            &self.matching_pipeline,
-            min_rule, max_rule,
-            &params,
-            &init_buf,
-            Some(&target_buf),
-        ))
+        let mut all_results: Vec<u64> = Vec::new();
+
+        for batch in 0..n_batches {
+            let start = min_rule + batch * BATCH_SIZE;
+            let count = BATCH_SIZE.min(max_rule + 1 - start);
+
+            // Only update params and reset counter per batch
+            unsafe {
+                let ptr = params_buf.contents() as *mut u64;
+                *ptr.add(0) = start;
+                *ptr.add(1) = count;
+                *ptr.add(2) = k as u64;
+                *ptr.add(3) = init.cells.len() as u64;
+                *ptr.add(4) = steps as u64;
+                *(counter_buf.contents() as *mut u32) = 0;
+            }
+
+            let cb = self.queue.new_command_buffer();
+            let enc = cb.new_compute_command_encoder();
+            enc.set_compute_pipeline_state(pipeline);
+            enc.set_buffer(0, Some(&params_buf), 0);
+            enc.set_buffer(1, Some(&init_buf), 0);
+            enc.set_buffer(2, Some(&counter_buf), 0);
+            enc.set_buffer(3, Some(&output_buf), 0);
+            enc.set_buffer(4, Some(&target_buf), 0);
+            enc.dispatch_threads(
+                MTLSize::new(count, 1, 1),
+                MTLSize::new(max_threads as u64, 1, 1),
+            );
+            enc.end_encoding();
+
+            cb.commit();
+            cb.wait_until_completed();
+
+            let found = unsafe { *(counter_buf.contents() as *const u32) } as u64;
+            let ptr = output_buf.contents() as *const u64;
+            for i in 0..found.min(MAX_OUTPUT) as usize {
+                let rule = unsafe { *ptr.add(i) };
+                all_results.push(rule);
+            }
+        }
+
+        all_results.sort_unstable();
+        all_results.dedup();
+        Some(all_results)
     }
 
     /// Find rules where max active width never exceeds max_width.
+    /// Optimized: pre-allocates all buffers once, reuses across batches.
     pub fn find_bounded_width_rules(
         &self,
         min_rule: u64,
@@ -237,16 +269,68 @@ impl GpuSearchEngine {
             return None;
         }
 
-        let init_buf = self.make_init_buffer(init);
-        let params = vec![0u64, 0, k as u64, init.cells.len() as u64, steps as u64, max_width as u64];
+        let pipeline = &self.bounded_pipeline;
+        let max_threads = pipeline.max_total_threads_per_threadgroup();
 
-        Some(self.dispatch_search(
-            &self.bounded_pipeline,
-            min_rule, max_rule,
-            &params,
-            &init_buf,
-            None,
-        ))
+        let total = max_rule - min_rule + 1;
+        let n_batches = (total + BATCH_SIZE - 1) / BATCH_SIZE;
+
+        let init_buf = self.make_init_buffer(init);
+        // params: [start_rule, count, k, tape_width, steps, max_width]
+        let params_buf = self.device.new_buffer(
+            6 * mem::size_of::<u64>() as u64,
+            MTLResourceOptions::StorageModeShared,
+        );
+        let counter_buf = self.device.new_buffer(4, MTLResourceOptions::StorageModeShared);
+        let output_buf = self.device.new_buffer(
+            MAX_OUTPUT * 8,
+            MTLResourceOptions::StorageModeShared,
+        );
+
+        let mut all_results: Vec<u64> = Vec::new();
+
+        for batch in 0..n_batches {
+            let start = min_rule + batch * BATCH_SIZE;
+            let count = BATCH_SIZE.min(max_rule + 1 - start);
+
+            unsafe {
+                let ptr = params_buf.contents() as *mut u64;
+                *ptr.add(0) = start;
+                *ptr.add(1) = count;
+                *ptr.add(2) = k as u64;
+                *ptr.add(3) = init.cells.len() as u64;
+                *ptr.add(4) = steps as u64;
+                *ptr.add(5) = max_width as u64;
+                *(counter_buf.contents() as *mut u32) = 0;
+            }
+
+            let cb = self.queue.new_command_buffer();
+            let enc = cb.new_compute_command_encoder();
+            enc.set_compute_pipeline_state(pipeline);
+            enc.set_buffer(0, Some(&params_buf), 0);
+            enc.set_buffer(1, Some(&init_buf), 0);
+            enc.set_buffer(2, Some(&counter_buf), 0);
+            enc.set_buffer(3, Some(&output_buf), 0);
+            enc.dispatch_threads(
+                MTLSize::new(count, 1, 1),
+                MTLSize::new(max_threads as u64, 1, 1),
+            );
+            enc.end_encoding();
+
+            cb.commit();
+            cb.wait_until_completed();
+
+            let found = unsafe { *(counter_buf.contents() as *const u32) } as u64;
+            let ptr = output_buf.contents() as *const u64;
+            for i in 0..found.min(MAX_OUTPUT) as usize {
+                let rule = unsafe { *ptr.add(i) };
+                all_results.push(rule);
+            }
+        }
+
+        all_results.sort_unstable();
+        all_results.dedup();
+        Some(all_results)
     }
 
     /// Find k=3 r=1 width-doublers using specialized kernel with analytical constraints.
