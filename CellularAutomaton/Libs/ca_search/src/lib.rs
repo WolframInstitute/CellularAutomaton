@@ -686,21 +686,11 @@ fn check_doubling_sequential(rule_number: u64, nin: usize) -> bool {
 }
 
 /// Find k=3, r=1 width-doubling rules.
-/// GPU handles tests 1-12 (single pass, 3^20 search space).
-/// CPU handles tests 13+ on survivors if needed.
+/// GPU handles all tests in a single pass (3^20 search space).
 pub fn find_doublers_k3r1(num_tests: u32) -> Vec<u64> {
-    #[allow(unused_variables)]
-    let gpu_max = num_tests.min(12);
-
     #[cfg(all(target_os = "macos", feature = "gpu"))]
     {
-        if let Some(mut candidates) = gpu::try_find_doublers_k3r1(gpu_max) {
-            if num_tests > gpu_max {
-                candidates.retain(|&rule| {
-                    (gpu_max as usize + 1..=num_tests as usize)
-                        .all(|nin| check_doubling_sequential(rule, nin))
-                });
-            }
+        if let Some(candidates) = gpu::try_find_doublers_k3r1(num_tests) {
             return candidates;
         }
     }
