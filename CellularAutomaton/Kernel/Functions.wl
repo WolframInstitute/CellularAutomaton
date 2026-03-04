@@ -10,9 +10,7 @@ CellularAutomatonOutput[rule, init, steps] uses elementary CA defaults (k=2, r=1
 CellularAutomatonEvolution::usage = "CellularAutomatonEvolution[rule, k, r, init, steps] returns the full spacetime evolution as a matrix of cell values.
 CellularAutomatonEvolution[rule, init, steps] uses elementary CA defaults (k=2, r=1)."
 
-CellularAutomatonSearch::usage = "CellularAutomatonSearch[init, steps, target, {k, r}] finds all CA rules whose evolution from init produces target after steps.
-CellularAutomatonSearch[init, steps, width] finds rules where the final active width equals width (an integer).
-CellularAutomatonSearch[init, steps, target] uses elementary defaults (k=2, r=1)."
+CellularAutomatonSearch::usage = "CellularAutomatonSearch[{k, r}, init \[Rule] target, steps] finds all CA rules whose evolution from init produces target after steps.\nCellularAutomatonSearch[init \[Rule] target, steps] uses elementary defaults.\nCellularAutomatonSearch[{k, r}, init \[Rule] targetWidth, steps] finds rules where the final active width equals targetWidth."
 
 CellularAutomatonOutputTable::usage = "CellularAutomatonOutputTable[k, r, init, steps] computes the output (final state value) for all rules in the (k, r) rule space.
 CellularAutomatonOutputTable[init, steps] uses elementary defaults (k=2, r=1)."
@@ -147,14 +145,46 @@ CellularAutomatonEvolution[rule_Integer, width_Integer, steps_Integer] := With[{
 
 (* CellularAutomatonSearch: find matching rules *)
 
-CellularAutomatonSearch[init_List, steps_Integer, target_List, {k_Integer, r_Integer}] :=
+(* Rulespec-first: {k, r}, init -> target, steps *)
+CellularAutomatonSearch[{k_Integer, r_Integer}, Rule[init_List, target_List], steps_Integer] :=
     fromDS @ FindMatchingRulesRust[0, CellularAutomatonRuleCount[k, r] - 1, k, r, toDS[init], steps, toDS[target]]
 
+CellularAutomatonSearch[{k_Integer, r_Integer}, Rule[init_List, target_List], steps_Integer, minRule_Integer ;; maxRule_Integer] :=
+    fromDS @ FindMatchingRulesRust[minRule, maxRule, k, r, toDS[init], steps, toDS[target]]
+
+(* Elementary shorthand *)
+CellularAutomatonSearch[Rule[init_List, target_List], steps_Integer] :=
+    CellularAutomatonSearch[{2, 1}, init -> target, steps]
+
+(* Rulespec-first: {k, r}, init -> targetWidth, steps *)
+CellularAutomatonSearch[{k_Integer, r_Integer}, Rule[init_List, targetWidth_Integer], steps_Integer] :=
+    fromDS @ FindExactWidthRulesRust[0, CellularAutomatonRuleCount[k, r] - 1, k, r,
+        toDS[init], 1, steps, targetWidth]
+
+CellularAutomatonSearch[{k_Integer, r_Integer}, Rule[init_List, targetWidth_Integer], steps_Integer, minRule_Integer ;; maxRule_Integer] :=
+    fromDS @ FindExactWidthRulesRust[minRule, maxRule, k, r,
+        toDS[init], 1, steps, targetWidth]
+
+(* Elementary shorthand for width *)
+CellularAutomatonSearch[Rule[init_List, targetWidth_Integer], steps_Integer] :=
+    CellularAutomatonSearch[{2, 1}, init -> targetWidth, steps]
+
+(* Multiple inits, width target *)
+CellularAutomatonSearch[{k_Integer, r_Integer}, Rule[inits:{__List}, targetWidth_Integer], steps_Integer] :=
+    With[{flat = Flatten[inits], n = Length[inits]},
+        fromDS @ FindExactWidthRulesRust[0, CellularAutomatonRuleCount[k, r] - 1, k, r,
+            toDS[flat], n, steps, targetWidth]
+    ]
+
+(* Legacy positional overloads for backward compatibility *)
+CellularAutomatonSearch[init_List, steps_Integer, target_List, {k_Integer, r_Integer}] :=
+    CellularAutomatonSearch[{k, r}, init -> target, steps]
+
 CellularAutomatonSearch[init_List, steps_Integer, target_List] :=
-    CellularAutomatonSearch[init, steps, target, {2, 1}]
+    CellularAutomatonSearch[{2, 1}, init -> target, steps]
 
 CellularAutomatonSearch[init_List, steps_Integer, target_List, {k_Integer, r_Integer}, minRule_Integer ;; maxRule_Integer] :=
-    fromDS @ FindMatchingRulesRust[minRule, maxRule, k, r, toDS[init], steps, toDS[target]]
+    CellularAutomatonSearch[{k, r}, init -> target, steps, minRule ;; maxRule]
 
 
 (* CellularAutomatonTest: check init -> target for specific rules *)
@@ -180,21 +210,17 @@ CellularAutomatonTest[rules : {__Integer}, Rule[init_List, target_List], steps_I
     CellularAutomatonTest[rules, init -> target, steps, {2, 1}]
 
 
-(* CellularAutomatonSearch: width-target overloads *)
-(* Single init, find rules where final active width = targetWidth *)
+(* Legacy width-target overloads *)
 
 CellularAutomatonSearch[init_List, steps_Integer, targetWidth_Integer, {k_Integer, r_Integer}] :=
-    fromDS @ FindExactWidthRulesRust[0, CellularAutomatonRuleCount[k, r] - 1, k, r,
-        toDS[init], 1, steps, targetWidth]
+    CellularAutomatonSearch[{k, r}, init -> targetWidth, steps]
 
 CellularAutomatonSearch[init_List, steps_Integer, targetWidth_Integer] :=
-    CellularAutomatonSearch[init, steps, targetWidth, {2, 1}]
+    CellularAutomatonSearch[{2, 1}, init -> targetWidth, steps]
 
 CellularAutomatonSearch[init_List, steps_Integer, targetWidth_Integer, {k_Integer, r_Integer}, minRule_Integer ;; maxRule_Integer] :=
-    fromDS @ FindExactWidthRulesRust[minRule, maxRule, k, r,
-        toDS[init], 1, steps, targetWidth]
+    CellularAutomatonSearch[{k, r}, init -> targetWidth, steps, minRule ;; maxRule]
 
-(* Multiple inits, ALL must produce targetWidth *)
 CellularAutomatonSearch[inits:{__List}, steps_Integer, targetWidth_Integer, {k_Integer, r_Integer},
         minRule_Integer ;; maxRule_Integer] :=
     With[{flat = Flatten[inits], n = Length[inits]},

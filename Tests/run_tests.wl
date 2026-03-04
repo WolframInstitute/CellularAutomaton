@@ -128,14 +128,20 @@ print[""];
 print["--- CellularAutomatonSearch ---"];
 
 With[{target = CellularAutomatonOutput[30, {0, 0, 0, 1, 0, 0, 0}, 1]},
-    runTestQ["Search finds rule 30 for its own output",
+    runTestQ["Search finds rule 30 (legacy)",
         MemberQ[CellularAutomatonSearch[{0, 0, 0, 1, 0, 0, 0}, 1, target], 30]
+    ];
+    runTestQ["Search finds rule 30 (new API)",
+        MemberQ[CellularAutomatonSearch[{0, 0, 0, 1, 0, 0, 0} -> target, 1], 30]
+    ];
+    runTestQ["Search with rulespec {k,r}",
+        MemberQ[CellularAutomatonSearch[{2, 1}, {0, 0, 0, 1, 0, 0, 0} -> target, 1], 30]
     ];
 ];
 
 With[{target = CellularAutomatonOutput[110, {0, 0, 0, 1, 0, 0, 0}, 1]},
-    runTestQ["Search finds rule 110 for its own output",
-        MemberQ[CellularAutomatonSearch[{0, 0, 0, 1, 0, 0, 0}, 1, target], 110]
+    runTestQ["Search finds rule 110",
+        MemberQ[CellularAutomatonSearch[{0, 0, 0, 1, 0, 0, 0} -> target, 1], 110]
     ];
 ];
 
@@ -231,17 +237,23 @@ print["--- CellularAutomatonSearch (width target) ---"];
 
 (* Width-target search: find rules producing specific active width *)
 With[{init = CenterArray[{1}, 21]},
-    With[{rules = CellularAutomatonSearch[init, 3, 7]},
-        runTestQ["Width search returns list", ListQ[rules]];
+    With[{rules = CellularAutomatonSearch[init -> 7, 3]},
+        runTestQ["Width search (new API) returns list", ListQ[rules]];
         runTestQ["Width search finds rules", Length[rules] > 0];
     ];
 ];
 
-(* Multi-init width search *)
-With[{
-    rules = CellularAutomatonSearch[{CenterArray[{1}, 21]}, 3, 7, {2, 1}]
-},
-    runTestQ["Multi-init width search returns list", ListQ[rules]];
+With[{init = CenterArray[{1}, 21]},
+    With[{rules = CellularAutomatonSearch[{2, 1}, init -> 7, 3]},
+        runTestQ["Width search with rulespec", ListQ[rules] && Length[rules] > 0];
+    ];
+];
+
+(* Legacy width search *)
+With[{init = CenterArray[{1}, 21]},
+    With[{rules = CellularAutomatonSearch[init, 3, 7]},
+        runTestQ["Width search (legacy) returns list", ListQ[rules]];
+    ];
 ];
 
 print[""];
