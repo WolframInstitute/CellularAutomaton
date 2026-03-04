@@ -22,7 +22,7 @@ pub struct GpuSearchEngine {
     test_rules_pipeline: ComputePipelineState,
     #[allow(dead_code)]
     filter_width_list_pipeline: ComputePipelineState,
-    random_search_pipeline: ComputePipelineState,
+    random_search_pipeline: Option<ComputePipelineState>,
 }
 
 impl GpuSearchEngine {
@@ -45,7 +45,8 @@ impl GpuSearchEngine {
         let refine_pipeline = make_pipeline("ca_refine_doublers")?;
         let test_rules_pipeline = make_pipeline("ca_test_rules")?;
         let filter_width_list_pipeline = make_pipeline("ca_filter_width_list")?;
-        let random_search_pipeline = make_pipeline("ca_random_search")?;
+        // Random search is optional — may fail if MAX_TAPE is too large for GPU
+        let random_search_pipeline = make_pipeline("ca_random_search");
 
         let queue = device.new_command_queue();
 
@@ -65,7 +66,7 @@ impl GpuSearchEngine {
     /// Check if the search parameters are GPU-compatible.
     /// Currently: r=1 only, k<=4, tape_width <= 256.
     fn is_supported(k: u32, r: u32, tape_width: usize) -> bool {
-        r == 1 && k <= 4 && tape_width <= 256
+        r == 1 && k <= 4 && tape_width <= 512
     }
 
     /// Create a Metal buffer from init cells.
@@ -531,7 +532,7 @@ pub fn try_test_rules(
     steps: usize,
     target: &CAState,
 ) -> Option<Vec<u8>> {
-    if r != 1 || k > 4 || init.cells.len() > 256 || candidates.is_empty() {
+    if r != 1 || k > 4 || init.cells.len() > 512 || candidates.is_empty() {
         return None;
     }
     GPU_ENGINE.with(|engine| {
@@ -597,14 +598,15 @@ pub fn try_random_search(
     steps: usize,
     target: &CAState,
 ) -> Option<Vec<String>> {
-    if r != 1 || k > 4 || init.cells.len() > 256 {
+    if r != 1 || k > 4 || init.cells.len() > 512 {
         return None;
     }
 
     GPU_ENGINE.with(|engine| {
         let engine = engine.as_ref()?;
+        let pipeline = engine.random_search_pipeline.as_ref()?;
         let table_size = (k as u64).pow((2 * r + 1) as u32) as usize;
-        let max_threads = engine.random_search_pipeline.max_total_threads_per_threadgroup();
+        let max_threads = pipeline.max_total_threads_per_threadgroup();
 
         let n_batches = (n + GPU_RANDOM_BATCH - 1) / GPU_RANDOM_BATCH;
         let mut all_results: Vec<String> = Vec::new();
@@ -648,7 +650,7 @@ pub fn try_random_search(
 
             let cb = engine.queue.new_command_buffer();
             let enc = cb.new_compute_command_encoder();
-            enc.set_compute_pipeline_state(&engine.random_search_pipeline);
+            enc.set_compute_pipeline_state(pipeline);
             enc.set_buffer(0, Some(&params_buf), 0);
             enc.set_buffer(1, Some(&init_buf), 0);
             enc.set_buffer(2, Some(&target_buf), 0);

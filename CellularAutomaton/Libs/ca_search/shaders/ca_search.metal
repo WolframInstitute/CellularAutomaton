@@ -5,7 +5,7 @@ using namespace metal;
 // Supports k=2,3,4 colors, r=1 radius
 // Each thread tests one rule number
 
-#define MAX_TAPE 256
+#define MAX_TAPE 512
 #define MAX_TABLE 64  // k^3 for k=4, r=1
 
 // Evolve CA for given steps, return final active width (span from first to last nonzero)
