@@ -399,3 +399,76 @@ kernel void ca_refine_doublers(
         result_rules[pos] = rule_number;
     }
 }
+
+// ============================================================================
+// General-purpose kernel: test list of rules against init→target
+// ============================================================================
+// params[0] = count, params[1] = k, params[2] = tape_width, params[3] = steps
+// input_rules: list of rule numbers to test
+// init_cells: initial state
+// target_cells: expected final state
+// output: 0/1 per rule (same length as input_rules)
+kernel void ca_test_rules(
+    device const uint64_t* params [[buffer(0)]],
+    device const uint64_t* input_rules [[buffer(1)]],
+    device const uchar* init_cells [[buffer(2)]],
+    device const uchar* target_cells [[buffer(3)]],
+    device uchar* output [[buffer(4)]],
+    uint tid [[thread_position_in_grid]]
+) {
+    uint64_t count = params[0];
+    if (tid >= count) return;
+
+    uint64_t rule_number = input_rules[tid];
+    uint k = (uint)params[1];
+    uint tape_width = (uint)params[2];
+    uint steps = (uint)params[3];
+
+    uchar table[MAX_TABLE];
+    uint table_size = k * k * k;
+    build_table(rule_number, k, table, table_size);
+
+    uchar init[MAX_TAPE];
+    for (uint i = 0; i < tape_width; i++) init[i] = init_cells[i];
+
+    output[tid] = evolve_and_match(table, k, init, target_cells, tape_width, steps) ? 1 : 0;
+}
+
+// ============================================================================
+// General-purpose kernel: filter list of rules by exact width
+// ============================================================================
+// params[0] = count, params[1] = k, params[2] = tape_width,
+// params[3] = steps, params[4] = target_width
+kernel void ca_filter_width_list(
+    device const uint64_t* params [[buffer(0)]],
+    device const uint64_t* input_rules [[buffer(1)]],
+    device const uchar* init_cells [[buffer(2)]],
+    device atomic_uint* result_count [[buffer(3)]],
+    device uint64_t* result_rules [[buffer(4)]],
+    uint tid [[thread_position_in_grid]]
+) {
+    uint64_t count = params[0];
+    if (tid >= count) return;
+
+    uint64_t rule_number = input_rules[tid];
+    uint k = (uint)params[1];
+    uint tape_width = (uint)params[2];
+    uint steps = (uint)params[3];
+    uint target_width = (uint)params[4];
+
+    uchar table[MAX_TABLE];
+    uint table_size = k * k * k;
+    build_table(rule_number, k, table, table_size);
+
+    uchar init[MAX_TAPE];
+    for (uint i = 0; i < tape_width; i++) init[i] = init_cells[i];
+
+    uint w = evolve_and_measure_width(table, k, init, tape_width, steps);
+    if (w == target_width) {
+        uint pos = atomic_fetch_add_explicit(result_count, 1, memory_order_relaxed);
+        if (pos < 1000000) {
+            result_rules[pos] = rule_number;
+        }
+    }
+}
+

@@ -719,7 +719,7 @@ pub fn filter_doublers_k3r1_wl(candidate_rules: Vec<i64>, num_tests: u64) -> Vec
 }
 
 /// Test a list of candidate rules: which ones produce target from init after steps?
-/// Returns a Vec of 0/1 (one per candidate), parallel via rayon.
+/// Returns a Vec of 0/1 (one per candidate). GPU-accelerated on macOS, CPU fallback.
 pub fn test_rules(
     candidates: &[u64],
     k: u32,
@@ -728,6 +728,15 @@ pub fn test_rules(
     steps: usize,
     target: &[u8],
 ) -> Vec<u8> {
+    // Try GPU first
+    #[cfg(all(target_os = "macos", feature = "gpu"))]
+    {
+        let target_state = CAState::new(target.to_vec(), k);
+        if let Some(results) = gpu::try_test_rules(candidates, k, r, initial, steps, &target_state) {
+            return results;
+        }
+    }
+
     candidates
         .par_iter()
         .map(|&rule_number| {

@@ -18,6 +18,9 @@ pub struct GpuSearchEngine {
     matching_pipeline: ComputePipelineState,
     bounded_pipeline: ComputePipelineState,
     refine_pipeline: ComputePipelineState,
+    test_rules_pipeline: ComputePipelineState,
+    #[allow(dead_code)]
+    filter_width_list_pipeline: ComputePipelineState,
 }
 
 impl GpuSearchEngine {
@@ -38,6 +41,8 @@ impl GpuSearchEngine {
         let matching_pipeline = make_pipeline("ca_find_matching")?;
         let bounded_pipeline = make_pipeline("ca_find_bounded")?;
         let refine_pipeline = make_pipeline("ca_refine_doublers")?;
+        let test_rules_pipeline = make_pipeline("ca_test_rules")?;
+        let filter_width_list_pipeline = make_pipeline("ca_filter_width_list")?;
 
         let queue = device.new_command_queue();
 
@@ -48,6 +53,8 @@ impl GpuSearchEngine {
             matching_pipeline,
             bounded_pipeline,
             refine_pipeline,
+            test_rules_pipeline,
+            filter_width_list_pipeline,
         })
     }
 
@@ -419,5 +426,68 @@ pub fn try_find_doublers_k3r1(num_tests: u32) -> Option<Vec<u64>> {
 pub fn try_refine_doublers(candidates: &[u64], start_test: u32, end_test: u32) -> Option<Vec<u64>> {
     GPU_ENGINE.with(|engine| {
         engine.as_ref()?.refine_doublers(candidates, start_test, end_test)
+    })
+}
+
+/// GPU-accelerated test: check each rule in candidates against init→target.
+/// Returns Vec<u8> of 0/1 (one per candidate).
+pub fn try_test_rules(
+    candidates: &[u64],
+    k: u32,
+    r: u32,
+    init: &CAState,
+    steps: usize,
+    target: &CAState,
+) -> Option<Vec<u8>> {
+    if r != 1 || k > 4 || init.cells.len() > 256 || candidates.is_empty() {
+        return None;
+    }
+    GPU_ENGINE.with(|engine| {
+        let engine = engine.as_ref()?;
+        let count = candidates.len() as u64;
+        let max_threads = engine.test_rules_pipeline.max_total_threads_per_threadgroup();
+
+        // Buffers
+        let params: Vec<u64> = vec![count, k as u64, init.cells.len() as u64, steps as u64];
+        let params_buf = engine.device.new_buffer_with_data(
+            params.as_ptr() as *const _,
+            (params.len() * mem::size_of::<u64>()) as u64,
+            MTLResourceOptions::StorageModeShared,
+        );
+        let rules_buf = engine.device.new_buffer_with_data(
+            candidates.as_ptr() as *const _,
+            (candidates.len() * mem::size_of::<u64>()) as u64,
+            MTLResourceOptions::StorageModeShared,
+        );
+        let init_buf = engine.make_init_buffer(init);
+        let target_buf = engine.device.new_buffer_with_data(
+            target.cells.as_ptr() as *const _,
+            target.cells.len() as u64,
+            MTLResourceOptions::StorageModeShared,
+        );
+        let output_buf = engine.device.new_buffer(
+            count,
+            MTLResourceOptions::StorageModeShared,
+        );
+
+        let cb = engine.queue.new_command_buffer();
+        let enc = cb.new_compute_command_encoder();
+        enc.set_compute_pipeline_state(&engine.test_rules_pipeline);
+        enc.set_buffer(0, Some(&params_buf), 0);
+        enc.set_buffer(1, Some(&rules_buf), 0);
+        enc.set_buffer(2, Some(&init_buf), 0);
+        enc.set_buffer(3, Some(&target_buf), 0);
+        enc.set_buffer(4, Some(&output_buf), 0);
+        enc.dispatch_threads(
+            MTLSize::new(count, 1, 1),
+            MTLSize::new(max_threads as u64, 1, 1),
+        );
+        enc.end_encoding();
+        cb.commit();
+        cb.wait_until_completed();
+
+        let ptr = output_buf.contents() as *const u8;
+        let results: Vec<u8> = (0..candidates.len()).map(|i| unsafe { *ptr.add(i) }).collect();
+        Some(results)
     })
 }
