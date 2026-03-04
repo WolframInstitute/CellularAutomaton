@@ -25,7 +25,7 @@ CellularAutomatonActiveWidths[init, steps] uses elementary defaults (k=2, r=1)."
 
 CellularAutomatonWidthRatioSearch::usage = "CellularAutomatonWidthRatioSearch[inits, steps, ratio, {k, r}, ruleRange, maxWidth] finds rules where the final active width equals ratio \[Times] input width for ALL initial conditions in inits. Fully parallelized.\nCellularAutomatonWidthRatioSearch[inits, steps, ratio, {k, r}] searches all rules.\nCellularAutomatonWidthRatioSearch[inits, steps, ratio] uses elementary defaults."
 
-CellularAutomatonTest::usage = "CellularAutomatonTest[rule, init, steps, target, {k, r}] returns True if the CA produces target from init.\nCellularAutomatonTest[{rule1, ...}, init, steps, target, {k, r}] returns the subset of rules that pass (parallel)."
+CellularAutomatonTest::usage = "CellularAutomatonTest[{rule, k, r}, init \[Rule] target, steps] returns True if the CA produces target from init.\nCellularAutomatonTest[rule, init \[Rule] target, steps] uses elementary defaults.\nCellularAutomatonTest[{{r1, k1, s1}, ...}, init \[Rule] target, steps] returns the subset of rule specs that pass.\nCellularAutomatonTest[{rule1, rule2, ...}, init \[Rule] target, steps, {k, r}] tests a list of rule numbers (parallel)."
 
 CellularAutomatonPlot
 
@@ -159,17 +159,25 @@ CellularAutomatonSearch[init_List, steps_Integer, target_List, {k_Integer, r_Int
 
 (* CellularAutomatonTest: check init -> target for specific rules *)
 
-CellularAutomatonTest[rule_Integer, init_List, steps_Integer, target_List, {k_Integer, r_Integer}] :=
+(* Single rulespec {rule, k, r} with init -> target *)
+CellularAutomatonTest[{rule_Integer, k_Integer, r_Integer}, Rule[init_List, target_List], steps_Integer] :=
     CellularAutomatonOutput[rule, k, r, init, steps] === target
 
-CellularAutomatonTest[rule_Integer, init_List, steps_Integer, target_List] :=
-    CellularAutomatonTest[rule, init, steps, target, {2, 1}]
+(* Elementary shorthand: bare rule number *)
+CellularAutomatonTest[rule_Integer, Rule[init_List, target_List], steps_Integer] :=
+    CellularAutomatonTest[{rule, 2, 1}, init -> target, steps]
 
-CellularAutomatonTest[rules_List, init_List, steps_Integer, target_List, {k_Integer, r_Integer}] :=
+(* List of rulespecs {{r1, k1, s1}, ...} — filter to passing specs *)
+CellularAutomatonTest[specs : {{_Integer, _Integer, _Integer} ..}, Rule[init_List, target_List], steps_Integer] :=
+    Select[specs, CellularAutomatonTest[#, init -> target, steps] &]
+
+(* List of rule numbers with explicit {k, r} — GPU-parallel filter *)
+CellularAutomatonTest[rules : {__Integer}, Rule[init_List, target_List], steps_Integer, {k_Integer, r_Integer}] :=
     Pick[rules, fromDS @ TestRulesRust[toDS[rules], k, r, toDS[init], steps, toDS[target]], 1]
 
-CellularAutomatonTest[rules_List, init_List, steps_Integer, target_List] :=
-    CellularAutomatonTest[rules, init, steps, target, {2, 1}]
+(* List of rule numbers, elementary default *)
+CellularAutomatonTest[rules : {__Integer}, Rule[init_List, target_List], steps_Integer] :=
+    CellularAutomatonTest[rules, init -> target, steps, {2, 1}]
 
 
 (* CellularAutomatonSearch: width-target overloads *)

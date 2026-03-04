@@ -195,13 +195,19 @@ With[{
     init = {0, 0, 0, 1, 0, 0, 0},
     target = CellularAutomatonOutput[30, {0, 0, 0, 1, 0, 0, 0}, 1]
 },
-    runTest["Single rule True", CellularAutomatonTest[30, init, 1, target], True];
-    runTest["Single rule False", CellularAutomatonTest[90, init, 1, target], False];
+    runTest["Single rule True", CellularAutomatonTest[30, init -> target, 1], True];
+    runTest["Single rule False", CellularAutomatonTest[90, init -> target, 1], False];
+    runTestQ["Rulespec {rule, k, r} True",
+        CellularAutomatonTest[{30, 2, 1}, init -> target, 1]];
     runTestQ["Batch test includes rule 30",
-        MemberQ[CellularAutomatonTest[Range[0, 255], init, 1, target], 30]
+        MemberQ[CellularAutomatonTest[Range[0, 255], init -> target, 1], 30]
     ];
     runTestQ["Batch test excludes non-matching",
-        !MemberQ[CellularAutomatonTest[Range[0, 255], init, 1, target], 1]
+        !MemberQ[CellularAutomatonTest[Range[0, 255], init -> target, 1], 1]
+    ];
+    runTest["List of specs filters",
+        CellularAutomatonTest[{{30, 2, 1}, {90, 2, 1}}, init -> target, 1],
+        {{30, 2, 1}}
     ];
 ];
 
@@ -211,10 +217,10 @@ With[{
     rule = 1920106431
 },
     With[{target = CellularAutomatonOutput[rule, 3, 1, init, 5]},
-        runTest["k=3 r=1 single test True",
-            CellularAutomatonTest[rule, init, 5, target, {3, 1}], True];
-        runTest["k=3 r=1 batch filters down",
-            CellularAutomatonTest[{rule, 123456, 654321}, init, 5, target, {3, 1}],
+        runTest["k=3 r=1 rulespec True",
+            CellularAutomatonTest[{rule, 3, 1}, init -> target, 5], True];
+        runTest["k=3 r=1 batch with {k,r}",
+            CellularAutomatonTest[{rule, 123456, 654321}, init -> target, 5, {3, 1}],
             {rule}
         ];
     ];
