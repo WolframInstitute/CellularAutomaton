@@ -976,7 +976,7 @@ pub fn test_rules_bigint_wl(
 
 /// Generate n random CA rules for given k, r directly as lookup tables,
 /// test each against init→target, return matching rule numbers as BigUint strings.
-/// This bypasses the WL BigInt → string → parse → BigUint division bottleneck.
+/// GPU-accelerated on macOS, CPU fallback otherwise.
 #[wll::export]
 pub fn random_search_wl(
     n: u64,
@@ -987,18 +987,23 @@ pub fn random_search_wl(
     steps: u64,
     target: Vec<i32>,
 ) -> Vec<String> {
+    let init_cells: Vec<u8> = init.iter().map(|&c| c as u8).collect();
+    let target_cells: Vec<u8> = target.iter().map(|&c| c as u8).collect();
+    let initial = CAState::new(init_cells.clone(), k);
+    let target_state = CAState::new(target_cells.clone(), k);
+
+    // Try GPU first
+    #[cfg(all(target_os = "macos", feature = "gpu"))]
+    if let Some(results) = gpu::try_random_search(n, seed, k, r, &initial, steps as usize, &target_state) {
+        return results;
+    }
+
+    // CPU fallback
     use rayon::prelude::*;
-    use std::sync::atomic::{AtomicU64, Ordering};
 
     let neighborhood_size = (2 * r + 1) as u32;
     let table_size = (k as u64).pow(neighborhood_size) as usize;
-    let init_cells: Vec<u8> = init.iter().map(|&c| c as u8).collect();
-    let target_cells: Vec<u8> = target.iter().map(|&c| c as u8).collect();
-    let initial = CAState::new(init_cells, k);
 
-    let counter = AtomicU64::new(0);
-
-    // Process in parallel chunks
     let chunk_size = 10000u64;
     let num_chunks = (n + chunk_size - 1) / chunk_size;
 
@@ -1014,7 +1019,6 @@ pub fn random_search_wl(
 
             for _ in chunk_start..chunk_end {
                 if wll::aborted() { break; }
-                // Generate random lookup table directly
                 let table: Vec<u8> = (0..table_size).map(|_| rng.gen_range(0..k as u8)).collect();
                 let ca = CellularAutomaton::from_table(table, k, r);
                 let final_state = ca.evolve_final(&initial, steps as usize);
@@ -1022,7 +1026,6 @@ pub fn random_search_wl(
                     let rule_num = ca.to_rule_number_bigint();
                     results.push(rule_num.to_string());
                 }
-                counter.fetch_add(1, Ordering::Relaxed);
             }
             results
         })

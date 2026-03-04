@@ -472,3 +472,61 @@ kernel void ca_filter_width_list(
     }
 }
 
+// ============================================================================
+// Random search kernel: generate random rule tables on GPU
+// For k>=4 where rule numbers exceed uint64.
+// Each thread generates a random lookup table via hash-based PRNG,
+// tests against init→target, and writes matching tables to output.
+// ============================================================================
+
+// PCG hash for per-thread random state
+uint pcg_hash(uint state) {
+    uint word = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
+    return (word >> 22u) ^ word;
+}
+
+// params[0] = n (total threads), params[1] = seed_lo, params[2] = seed_hi
+// params[3] = k, params[4] = tape_width, params[5] = steps
+// params[6] = table_size (k^(2r+1))
+kernel void ca_random_search(
+    device const uint64_t* params [[buffer(0)]],
+    device const uchar* init_cells [[buffer(1)]],
+    device const uchar* target_cells [[buffer(2)]],
+    device atomic_uint* result_count [[buffer(3)]],
+    device uchar* result_tables [[buffer(4)]],  // MAX_OUTPUT * table_size bytes
+    uint tid [[thread_position_in_grid]]
+) {
+    uint64_t n = params[0];
+    if (tid >= n) return;
+
+    uint64_t seed = params[1] | (params[2] << 32);
+    uint k = (uint)params[3];
+    uint tape_width = (uint)params[4];
+    uint steps = (uint)params[5];
+    uint table_size = (uint)params[6];
+
+    // Generate random table using PCG hash chain
+    uint state = pcg_hash((uint)(seed ^ (uint64_t)tid));
+    state = pcg_hash(state ^ (uint)(seed >> 32));
+
+    uchar table[MAX_TABLE];
+    for (uint i = 0; i < table_size; i++) {
+        state = pcg_hash(state);
+        table[i] = (uchar)(state % k);
+    }
+
+    // Copy init
+    uchar init[MAX_TAPE];
+    for (uint i = 0; i < tape_width; i++) init[i] = init_cells[i];
+
+    // Test
+    if (evolve_and_match(table, k, init, target_cells, tape_width, steps)) {
+        uint pos = atomic_fetch_add_explicit(result_count, 1, memory_order_relaxed);
+        if (pos < 1000000) {
+            // Write matching table to output
+            for (uint i = 0; i < table_size; i++) {
+                result_tables[pos * table_size + i] = table[i];
+            }
+        }
+    }
+}

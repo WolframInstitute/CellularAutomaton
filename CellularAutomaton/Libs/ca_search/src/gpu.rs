@@ -22,6 +22,7 @@ pub struct GpuSearchEngine {
     test_rules_pipeline: ComputePipelineState,
     #[allow(dead_code)]
     filter_width_list_pipeline: ComputePipelineState,
+    random_search_pipeline: ComputePipelineState,
 }
 
 impl GpuSearchEngine {
@@ -44,6 +45,7 @@ impl GpuSearchEngine {
         let refine_pipeline = make_pipeline("ca_refine_doublers")?;
         let test_rules_pipeline = make_pipeline("ca_test_rules")?;
         let filter_width_list_pipeline = make_pipeline("ca_filter_width_list")?;
+        let random_search_pipeline = make_pipeline("ca_random_search")?;
 
         let queue = device.new_command_queue();
 
@@ -56,6 +58,7 @@ impl GpuSearchEngine {
             refine_pipeline,
             test_rules_pipeline,
             filter_width_list_pipeline,
+            random_search_pipeline,
         })
     }
 
@@ -580,3 +583,101 @@ pub fn try_test_rules(
         Some(results)
     })
 }
+
+const GPU_RANDOM_BATCH: u64 = 100_000_000; // 100M per GPU dispatch
+
+/// GPU-accelerated random search: generate random rule tables on GPU, test against init→target.
+/// Returns matching rule numbers as BigUint strings.
+pub fn try_random_search(
+    n: u64,
+    seed: u64,
+    k: u32,
+    r: u32,
+    init: &CAState,
+    steps: usize,
+    target: &CAState,
+) -> Option<Vec<String>> {
+    if r != 1 || k > 4 || init.cells.len() > 256 {
+        return None;
+    }
+
+    GPU_ENGINE.with(|engine| {
+        let engine = engine.as_ref()?;
+        let table_size = (k as u64).pow((2 * r + 1) as u32) as usize;
+        let max_threads = engine.random_search_pipeline.max_total_threads_per_threadgroup();
+
+        let n_batches = (n + GPU_RANDOM_BATCH - 1) / GPU_RANDOM_BATCH;
+        let mut all_results: Vec<String> = Vec::new();
+
+        // Pre-allocate buffers
+        // params: [n, seed_lo, seed_hi, k, tape_width, steps, table_size]
+        let params_buf = engine.device.new_buffer(
+            7 * mem::size_of::<u64>() as u64,
+            MTLResourceOptions::StorageModeShared,
+        );
+        let init_buf = engine.make_init_buffer(init);
+        let target_buf = engine.device.new_buffer_with_data(
+            target.cells.as_ptr() as *const _,
+            target.cells.len() as u64,
+            MTLResourceOptions::StorageModeShared,
+        );
+        let counter_buf = engine.device.new_buffer(4, MTLResourceOptions::StorageModeShared);
+        // Output buffer: up to MAX_OUTPUT matching tables, each table_size bytes
+        let output_buf = engine.device.new_buffer(
+            MAX_OUTPUT * table_size as u64,
+            MTLResourceOptions::StorageModeShared,
+        );
+
+        for batch in 0..n_batches {
+            if wll::aborted() { break; }
+            let batch_start = batch * GPU_RANDOM_BATCH;
+            let count = GPU_RANDOM_BATCH.min(n - batch_start);
+            let batch_seed = seed.wrapping_add(batch * GPU_RANDOM_BATCH);
+
+            unsafe {
+                let ptr = params_buf.contents() as *mut u64;
+                *ptr.add(0) = count;
+                *ptr.add(1) = batch_seed & 0xFFFF_FFFF;
+                *ptr.add(2) = batch_seed >> 32;
+                *ptr.add(3) = k as u64;
+                *ptr.add(4) = init.cells.len() as u64;
+                *ptr.add(5) = steps as u64;
+                *ptr.add(6) = table_size as u64;
+                *(counter_buf.contents() as *mut u32) = 0;
+            }
+
+            let cb = engine.queue.new_command_buffer();
+            let enc = cb.new_compute_command_encoder();
+            enc.set_compute_pipeline_state(&engine.random_search_pipeline);
+            enc.set_buffer(0, Some(&params_buf), 0);
+            enc.set_buffer(1, Some(&init_buf), 0);
+            enc.set_buffer(2, Some(&target_buf), 0);
+            enc.set_buffer(3, Some(&counter_buf), 0);
+            enc.set_buffer(4, Some(&output_buf), 0);
+            enc.dispatch_threads(
+                MTLSize::new(count, 1, 1),
+                MTLSize::new(max_threads as u64, 1, 1),
+            );
+            enc.end_encoding();
+            cb.commit();
+            cb.wait_until_completed();
+
+            let found = unsafe { *(counter_buf.contents() as *const u32) } as usize;
+            if found > 0 {
+                let ptr = output_buf.contents() as *const u8;
+                for i in 0..found.min(MAX_OUTPUT as usize) {
+                    // Read table from GPU output
+                    let table: Vec<u8> = (0..table_size)
+                        .map(|j| unsafe { *ptr.add(i * table_size + j) })
+                        .collect();
+                    let ca = crate::models::CellularAutomaton::from_table(table, k, r);
+                    let rule_num = ca.to_rule_number_bigint();
+                    all_results.push(rule_num.to_string());
+                }
+            }
+        }
+
+        Some(all_results)
+    })
+}
+
