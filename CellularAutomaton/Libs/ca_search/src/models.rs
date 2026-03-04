@@ -134,6 +134,32 @@ impl CellularAutomaton {
         }
     }
 
+    /// Decode a BigUint rule number for given k (colors) and r (radius).
+    /// Same as from_rule_number but supports arbitrary precision.
+    pub fn from_rule_number_bigint(rule_number: &num_bigint::BigUint, k: u32, r: u32) -> Self {
+        use num_bigint::BigUint;
+        let neighborhood_size = (2 * r + 1) as usize;
+        let num_neighborhoods = (k as u64).pow(neighborhood_size as u32) as usize;
+        let mut table = vec![0u8; num_neighborhoods];
+        let k_big = BigUint::from(k);
+        let mut val = rule_number.clone();
+        let zero = BigUint::from(0u32);
+        for i in 0..num_neighborhoods {
+            if val == zero {
+                break;
+            }
+            let rem = &val % &k_big;
+            // rem fits in u8 since rem < k <= 255
+            table[i] = rem.to_bytes_le().first().copied().unwrap_or(0);
+            val /= &k_big;
+        }
+        CellularAutomaton {
+            rule_table: table,
+            k,
+            r,
+        }
+    }
+
     /// Total number of possible rules for given k (colors) and r (radius).
     pub fn rule_count(k: u32, r: u32) -> u64 {
         let neighborhood_size = 2 * r + 1;

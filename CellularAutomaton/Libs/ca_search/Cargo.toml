@@ -9,6 +9,7 @@ gpu = ["metal", "objc"]
 
 [dependencies]
 rayon = "1.8"
+num-bigint = "0.4"
 wolfram-library-link = { git = "https://github.com/sw1sh/wolfram-library-link-rs", branch = "feature/optional_wstp" }
 
 [target.'cfg(target_os = "macos")'.dependencies]

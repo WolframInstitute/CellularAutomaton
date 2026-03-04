@@ -893,3 +893,61 @@ mod tests {
         assert!(doublers.contains(&54240), "doublers: {:?}", doublers);
     }
 }
+
+// =============================================================================
+// BigInt WLL exports (for k >= 4 where rule numbers exceed u64)
+// =============================================================================
+
+/// Run a CA with a BigInt rule number (passed as string) and return just the final state.
+#[wll::export]
+pub fn run_ca_final_bigint_wl(
+    rule_number_str: String,
+    k: u32,
+    r: u32,
+    initial_cells: Vec<i32>,
+    steps: u64,
+) -> Vec<i32> {
+    use num_bigint::BigUint;
+    let rule_number: BigUint = match rule_number_str.parse::<BigUint>() {
+        Ok(v) => v,
+        Err(_) => return Vec::new(),
+    };
+    let cells: Vec<u8> = initial_cells.iter().map(|&c| c as u8).collect();
+    let ca = CellularAutomaton::from_rule_number_bigint(&rule_number, k, r);
+    let initial = CAState::new(cells, k);
+    let final_state = ca.evolve_final(&initial, steps as usize);
+    final_state.cells.iter().map(|&c| c as i32).collect()
+}
+
+/// Test a batch of BigInt candidate rules (passed as strings) against init/target.
+/// Returns a Vec<i32> of 0/1 flags (1 = match, 0 = no match), same as test_rules_wl.
+#[wll::export]
+pub fn test_rules_bigint_wl(
+    candidate_rule_strs: Vec<String>,
+    k: u32,
+    r: u32,
+    init: Vec<i32>,
+    steps: u64,
+    target: Vec<i32>,
+) -> Vec<i32> {
+    use num_bigint::BigUint;
+    use rayon::prelude::*;
+
+    let init_cells: Vec<u8> = init.iter().map(|&c| c as u8).collect();
+    let target_cells: Vec<u8> = target.iter().map(|&c| c as u8).collect();
+    let initial = CAState::new(init_cells, k);
+
+    candidate_rule_strs
+        .par_iter()
+        .map(|rule_str| {
+            if wll::aborted() { return 0; }
+            let rule_number: BigUint = match rule_str.parse::<BigUint>() {
+                Ok(v) => v,
+                Err(_) => return 0,
+            };
+            let ca = CellularAutomaton::from_rule_number_bigint(&rule_number, k, r);
+            let final_state = ca.evolve_final(&initial, steps as usize);
+            if final_state.cells == target_cells { 1 } else { 0 }
+        })
+        .collect()
+}

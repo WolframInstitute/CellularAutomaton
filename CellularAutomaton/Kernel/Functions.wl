@@ -96,6 +96,8 @@ FindDoublersK3R1Rust := functions["find_doublers_k3r1_wl"]
 FilterWidthRatioRulesRust := functions["filter_width_ratio_rules_wl"]
 FilterDoublersK3R1Rust := functions["filter_doublers_k3r1_wl"]
 TestRulesRust := functions["test_rules_wl"]
+RunCAFinalBigIntRust := functions["run_ca_final_bigint_wl"]
+TestRulesBigIntRust := functions["test_rules_bigint_wl"]
 
 (* Helper: convert WL list to DataStore for WLL Vec<T> arguments *)
 toDS[list_List] := Developer`DataStore @@ list
@@ -117,9 +119,9 @@ $MaxRustRuleNumber = 2^64 - 1; (* u64 max *)
 CellularAutomatonOutput[rule_Integer, k_Integer, r_Integer, init_List, steps_Integer] /; rule <= $MaxRustRuleNumber :=
     fromDS @ RunCAFinalRust[rule, k, r, toDS[init], steps]
 
-(* WL fallback for BigInteger rules (k >= 4) *)
+(* BigInt path: pass rule as string to Rust *)
 CellularAutomatonOutput[rule_Integer, k_Integer, r_Integer, init_List, steps_Integer] :=
-    Last[CellularAutomaton[{rule, k, r}, {init, 0}, steps]]
+    fromDS @ RunCAFinalBigIntRust[ToString[rule], k, r, toDS[init], steps]
 
 CellularAutomatonOutput[rule_Integer, init_List, steps_Integer] :=
     CellularAutomatonOutput[rule, 2, 1, init, steps]
@@ -332,9 +334,16 @@ CellularAutomatonTest[rules : {__Integer}, Rule[init_List, target_List], steps_I
         ]
     ]
 
-(* WL fallback for BigInteger rules *)
+(* BigInt path: pass rule numbers as strings to Rust *)
 CellularAutomatonTest[rules : {__Integer}, Rule[init_List, target_List], steps_Integer, {k_Integer, r_Integer}] :=
-    Select[rules, caTestSingle[#, k, r, init, target, steps] &]
+    With[{padWidth = Max[Length[init], Length[target]] + 2 * steps + 2},
+        With[{paddedInit = padCenter[init, padWidth, k],
+              paddedTarget = padCenter[target, padWidth, k]},
+            Pick[rules,
+                fromDS @ TestRulesBigIntRust[
+                    toDS[ToString /@ rules], k, r, toDS[paddedInit], steps, toDS[paddedTarget]], 1]
+        ]
+    ]
 
 (* List of rule numbers, elementary default *)
 CellularAutomatonTest[rules : {__Integer}, Rule[init_List, target_List], steps_Integer] :=
