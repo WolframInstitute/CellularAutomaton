@@ -182,12 +182,26 @@ CellularAutomatonSearch[{k_Integer, r_Integer}, Rule[inits:{__List}, targetWidth
 CellularAutomatonSearch[{span_Span, k_Integer, r_Integer}, target_, steps_Integer] :=
     CellularAutomatonSearch[{Range @@ span, k, r}, target, steps]
 
-(* seed -> n → random sample of n rules *)
+(* seed -> n → random sample of n rules, chunked to avoid huge allocations *)
+$MaxRandomChunk = 10000000; (* 10M rules per chunk *)
+
 CellularAutomatonSearch[{Rule[seed_, n_Integer], k_Integer, r_Integer}, target_, steps_Integer] :=
     With[{max = CellularAutomatonRuleCount[k, r] - 1},
         BlockRandom[
             SeedRandom[seed];
-            CellularAutomatonSearch[{RandomInteger[max, n], k, r}, target, steps],
+            If[n <= $MaxRandomChunk,
+                CellularAutomatonSearch[{RandomInteger[max, n], k, r}, target, steps],
+                (* Chunked: generate and filter in batches *)
+                Module[{results = {}, remaining = n, batch},
+                    While[remaining > 0,
+                        batch = Min[remaining, $MaxRandomChunk];
+                        results = Join[results,
+                            CellularAutomatonSearch[{RandomInteger[max, batch], k, r}, target, steps]];
+                        remaining -= batch;
+                    ];
+                    results
+                ]
+            ],
             RandomSeeding -> seed
         ]
     ]
@@ -207,6 +221,14 @@ CellularAutomatonSearch[{3, 1}, pairs:{__Rule}, steps_Integer] /; isDoublerPatte
     With[{maxN = Max[Length[First[#]] & /@ pairs]},
         With[{candidates = fromDS @ FindDoublersK3R1Rust[maxN]},
             Fold[CellularAutomatonTest[#1, #2, steps, {3, 1}] &, candidates, pairs]
+        ]
+    ]
+
+(* Candidate list, k=3, r=1 with doubler pairs: use specialized filter *)
+CellularAutomatonSearch[{candidates_List, 3, 1}, pairs:{__Rule}, steps_Integer] /; isDoublerPattern[pairs] :=
+    With[{maxN = Max[Length[First[#]] & /@ pairs]},
+        With[{filtered = fromDS @ FilterDoublersK3R1Rust[toDS[candidates], maxN]},
+            Fold[CellularAutomatonTest[#1, #2, steps, {3, 1}] &, filtered, pairs]
         ]
     ]
 
@@ -295,21 +317,15 @@ CellularAutomatonTest[rule_Integer, Rule[init_List, target_List], steps_Integer]
 CellularAutomatonTest[specs : {{_Integer, _Integer, _Integer} ..}, Rule[init_List, target_List], steps_Integer] :=
     Select[specs, CellularAutomatonTest[#, init -> target, steps] &]
 
+(* Empty candidate list — short-circuit *)
+CellularAutomatonTest[{}, Rule[_List, _List], _Integer, {_Integer, _Integer}] := {}
+
 (* List of rule numbers with explicit {k, r} — GPU-parallel filter *)
 CellularAutomatonTest[rules : {__Integer}, Rule[init_List, target_List], steps_Integer, {k_Integer, r_Integer}] :=
-    If[Length[init] === Length[target],
-        (* Same length: use Rust parallel test *)
-        Pick[rules, fromDS @ TestRulesRust[toDS[rules], k, r, toDS[init], steps, toDS[target]], 1],
-        (* Different lengths: pad and use Rust *)
-        With[{
-            tapeWidth = Max[Length[init], Length[target]] + 2 * steps + 2,
-            paddedInit = padCenter[init, Max[Length[init], Length[target]] + 2 * steps + 2, k]
-        },
-            With[{paddedTarget = CellularAutomatonOutput[First[rules], k, r, paddedInit, steps]},
-                (* Can't use Rust directly for active-region match;
-                   fall back to WL Select for different-length case *)
-                Select[rules, caTestSingle[#, k, r, init, target, steps] &]
-            ]
+    With[{padWidth = Max[Length[init], Length[target]] + 2 * steps + 2},
+        With[{paddedInit = padCenter[init, padWidth, k],
+              paddedTarget = padCenter[target, padWidth, k]},
+            Pick[rules, fromDS @ TestRulesRust[toDS[rules], k, r, toDS[paddedInit], steps, toDS[paddedTarget]], 1]
         ]
     ]
 

@@ -5,7 +5,7 @@ PacletObject[
     "Creator" -> "Nik Murzin",
     "License" -> "MIT",
     "PublisherID" -> "WolframInstitute",
-    "Version" -> "1.0.2",
+    "Version" -> "1.0.3",
     "WolframVersion" -> "14.3+",
     "PrimaryContext" -> "WolframInstitute`CellularAutomaton`",
     "Extensions" -> {
