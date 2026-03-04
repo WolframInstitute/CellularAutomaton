@@ -220,6 +220,20 @@ CellularAutomatonSearch[{k_Integer, r_Integer}, Rule[inits:{__List}, targetWidth
 
 (* === Candidate list rulespec: {{rn1, ...}, k, r} === *)
 
+(* Span → range of rule numbers *)
+CellularAutomatonSearch[{span_Span, k_Integer, r_Integer}, target_, steps_Integer] :=
+    CellularAutomatonSearch[{Range @@ span, k, r}, target, steps]
+
+(* seed -> n → random sample of n rules *)
+CellularAutomatonSearch[{Rule[seed_, n_Integer], k_Integer, r_Integer}, target_, steps_Integer] :=
+    With[{max = CellularAutomatonRuleCount[k, r] - 1},
+        BlockRandom[
+            SeedRandom[seed];
+            CellularAutomatonSearch[{RandomInteger[max, n], k, r}, target, steps],
+            RandomSeeding -> seed
+        ]
+    ]
+
 (* Single target: filter candidates *)
 CellularAutomatonSearch[{candidates_List, k_Integer, r_Integer}, Rule[init_List, target_List], steps_Integer] :=
     CellularAutomatonTest[candidates, init -> target, steps, {k, r}]
