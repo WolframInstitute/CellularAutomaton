@@ -419,13 +419,31 @@ CellularAutomatonWidthRatioSearch[inits:{__List}, steps_Integer, ratio_, {k_Inte
     CellularAutomatonWidthRatioSearch[inits, steps, ratio, {k, r}, minRule ;; maxRule,
         Max[Length /@ inits]]
 
-(* Specialized fast path: ratio=2, k=3, r=1 → GPU-accelerated doubler search *)
-CellularAutomatonWidthRatioSearch[inits:{__List}, steps_Integer, 2, {3, 1}] :=
-    fromDS @ FindDoublersK3R1Rust[Length[inits]]
+(* Helper: check if inits are NKS-standard center-cell patterns *)
+isNKSPattern[init_List] := With[{mid = Ceiling[Length[init] / 2]},
+    AllTrue[Delete[init, mid], # === 0 &] && init[[mid]] === 1
+]
 
-(* Specialized sieve: ratio=2, k=3, r=1 → NKS sequential-scan filter *)
+(* Specialized fast path: ratio=2, k=3, r=1 with NKS-standard patterns *)
+CellularAutomatonWidthRatioSearch[inits:{__List}, steps_Integer, 2, {3, 1}] /; AllTrue[inits, isNKSPattern] :=
+    fromDS @ FindDoublersK3R1Rust[Max[Length /@ inits]]
+
+(* Non-NKS inits, ratio=2, k=3, r=1: use NKS doubler as pre-filter, then verify with actual inits *)
+CellularAutomatonWidthRatioSearch[inits:{__List}, steps_Integer, 2, {3, 1}] :=
+    With[{candidates = fromDS @ FindDoublersK3R1Rust[Max[Length /@ inits]]},
+        CellularAutomatonWidthRatioSearch[inits, steps, 2, {3, 1}, candidates]
+    ]
+
+(* Specialized sieve: ratio=2, k=3, r=1, NKS patterns *)
+CellularAutomatonWidthRatioSearch[inits:{__List}, steps_Integer, 2, {3, 1}, rules_List] /; AllTrue[inits, isNKSPattern] :=
+    fromDS @ FilterDoublersK3R1Rust[toDS[rules], Max[Length /@ inits]]
+
+(* Specialized sieve: ratio=2, k=3, r=1, non-NKS patterns — use general filter *)
 CellularAutomatonWidthRatioSearch[inits:{__List}, steps_Integer, 2, {3, 1}, rules_List] :=
-    fromDS @ FilterDoublersK3R1Rust[toDS[rules], Length[inits]]
+    With[{flat = Flatten[inits], n = Length[inits]},
+        fromDS @ FilterWidthRatioRulesRust[toDS[rules], 3, 1, toDS[flat], n, steps,
+            2, 1, Max[Length /@ inits]]
+    ]
 
 CellularAutomatonWidthRatioSearch[inits:{__List}, steps_Integer, ratio_, {k_Integer, r_Integer}] :=
     CellularAutomatonWidthRatioSearch[inits, steps, ratio, {k, r},
