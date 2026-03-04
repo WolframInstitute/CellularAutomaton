@@ -189,9 +189,41 @@ CellularAutomatonSearch[init_List, steps_Integer, target_List, {k_Integer, r_Int
 
 (* CellularAutomatonTest: check init -> target for specific rules *)
 
+(* Auto-pad helper: embed pattern centered in a zero-padded tape *)
+padCenter[pattern_List, width_Integer, k_Integer] :=
+    With[{pad = Ceiling[(width - Length[pattern]) / 2]},
+        Join[ConstantArray[0, pad], pattern, ConstantArray[0, width - Length[pattern] - pad]]
+    ]
+
+(* Extract active (nonzero) region from CA output *)
+activeRegion[state_List] :=
+    With[{nz = Flatten @ Position[state, _?(# != 0 &)]},
+        If[nz === {}, {},
+            state[[First[nz] ;; Last[nz]]]
+        ]
+    ]
+
+(* Core test: handles same-length and different-length init/target *)
+caTestSingle[rule_Integer, k_Integer, r_Integer, init_List, target_List, steps_Integer] :=
+    If[Length[init] === Length[target],
+        (* Same length: direct comparison *)
+        CellularAutomatonOutput[rule, k, r, init, steps] === target,
+        (* Different length: pad init into wider tape, check active region of output *)
+        With[{
+            tapeWidth = Max[Length[init], Length[target]] + 2 * steps + 2
+        },
+            With[{
+                paddedInit = padCenter[init, tapeWidth, k],
+                output = CellularAutomatonOutput[rule, k, r, padCenter[init, tapeWidth, k], steps]
+            },
+                activeRegion[output] === target
+            ]
+        ]
+    ]
+
 (* Single rulespec {rule, k, r} with init -> target *)
 CellularAutomatonTest[{rule_Integer, k_Integer, r_Integer}, Rule[init_List, target_List], steps_Integer] :=
-    CellularAutomatonOutput[rule, k, r, init, steps] === target
+    caTestSingle[rule, k, r, init, target, steps]
 
 (* Elementary shorthand: bare rule number *)
 CellularAutomatonTest[rule_Integer, Rule[init_List, target_List], steps_Integer] :=
@@ -203,7 +235,21 @@ CellularAutomatonTest[specs : {{_Integer, _Integer, _Integer} ..}, Rule[init_Lis
 
 (* List of rule numbers with explicit {k, r} — GPU-parallel filter *)
 CellularAutomatonTest[rules : {__Integer}, Rule[init_List, target_List], steps_Integer, {k_Integer, r_Integer}] :=
-    Pick[rules, fromDS @ TestRulesRust[toDS[rules], k, r, toDS[init], steps, toDS[target]], 1]
+    If[Length[init] === Length[target],
+        (* Same length: use Rust parallel test *)
+        Pick[rules, fromDS @ TestRulesRust[toDS[rules], k, r, toDS[init], steps, toDS[target]], 1],
+        (* Different lengths: pad and use Rust *)
+        With[{
+            tapeWidth = Max[Length[init], Length[target]] + 2 * steps + 2,
+            paddedInit = padCenter[init, Max[Length[init], Length[target]] + 2 * steps + 2, k]
+        },
+            With[{paddedTarget = CellularAutomatonOutput[First[rules], k, r, paddedInit, steps]},
+                (* Can't use Rust directly for active-region match;
+                   fall back to WL Select for different-length case *)
+                Select[rules, caTestSingle[#, k, r, init, target, steps] &]
+            ]
+        ]
+    ]
 
 (* List of rule numbers, elementary default *)
 CellularAutomatonTest[rules : {__Integer}, Rule[init_List, target_List], steps_Integer] :=

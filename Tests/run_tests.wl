@@ -232,6 +232,26 @@ With[{
     ];
 ];
 
+(* Auto-padding: NKS doublers with different-length init/target *)
+runTest["NKS doubler auto-pad: {2} -> {1,1}",
+    CellularAutomatonTest[{4517262867726, 3, 1}, {2} -> {1, 1}, 200],
+    True
+];
+
+runTest["NKS doubler auto-pad: {1,2} -> {1,1,1,1}",
+    CellularAutomatonTest[{4517262867726, 3, 1}, {1, 2} -> {1, 1, 1, 1}, 200],
+    True
+];
+
+runTest["NKS doubler auto-pad table",
+    Table[
+        CellularAutomatonTest[{4517262867726, 3, 1},
+            Append[ConstantArray[1, n], 2] -> ConstantArray[1, 2 (n + 1)], 200],
+        {n, 10}
+    ],
+    ConstantArray[True, 10]
+];
+
 print[""];
 print["--- CellularAutomatonSearch (width target) ---"];
 
