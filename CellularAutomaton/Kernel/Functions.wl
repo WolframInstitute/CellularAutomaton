@@ -112,8 +112,14 @@ CellularAutomatonRuleCount[k_Integer : 2, r_Integer : 1] :=
 
 (* CellularAutomatonOutput: final state *)
 
-CellularAutomatonOutput[rule_Integer, k_Integer, r_Integer, init_List, steps_Integer] :=
+$MaxRustRuleNumber = 2^64 - 1; (* u64 max *)
+
+CellularAutomatonOutput[rule_Integer, k_Integer, r_Integer, init_List, steps_Integer] /; rule <= $MaxRustRuleNumber :=
     fromDS @ RunCAFinalRust[rule, k, r, toDS[init], steps]
+
+(* WL fallback for BigInteger rules (k >= 4) *)
+CellularAutomatonOutput[rule_Integer, k_Integer, r_Integer, init_List, steps_Integer] :=
+    Last[CellularAutomaton[{rule, k, r}, {init, 0}, steps]]
 
 CellularAutomatonOutput[rule_Integer, init_List, steps_Integer] :=
     CellularAutomatonOutput[rule, 2, 1, init, steps]
@@ -292,15 +298,11 @@ caTestSingle[rule_Integer, k_Integer, r_Integer, init_List, target_List, steps_I
     If[Length[init] === Length[target],
         (* Same length: direct comparison *)
         CellularAutomatonOutput[rule, k, r, init, steps] === target,
-        (* Different length: pad init into wider tape, check active region of output *)
-        With[{
-            tapeWidth = Max[Length[init], Length[target]] + 2 * steps + 2
-        },
-            With[{
-                paddedInit = padCenter[init, tapeWidth, k],
-                output = CellularAutomatonOutput[rule, k, r, padCenter[init, tapeWidth, k], steps]
-            },
-                activeRegion[output] === target
+        (* Different length: use WL CellularAutomaton with auto-expansion, check active region *)
+        With[{output = CellularAutomaton[{rule, k, r}, {init, 0}, steps]},
+            If[ListQ[output],
+                activeRegion[Last[output]] === target,
+                False
             ]
         ]
     ]
@@ -321,13 +323,18 @@ CellularAutomatonTest[specs : {{_Integer, _Integer, _Integer} ..}, Rule[init_Lis
 CellularAutomatonTest[{}, Rule[_List, _List], _Integer, {_Integer, _Integer}] := {}
 
 (* List of rule numbers with explicit {k, r} — GPU-parallel filter *)
-CellularAutomatonTest[rules : {__Integer}, Rule[init_List, target_List], steps_Integer, {k_Integer, r_Integer}] :=
+CellularAutomatonTest[rules : {__Integer}, Rule[init_List, target_List], steps_Integer, {k_Integer, r_Integer}] /;
+        Max[rules] <= $MaxRustRuleNumber :=
     With[{padWidth = Max[Length[init], Length[target]] + 2 * steps + 2},
         With[{paddedInit = padCenter[init, padWidth, k],
               paddedTarget = padCenter[target, padWidth, k]},
             Pick[rules, fromDS @ TestRulesRust[toDS[rules], k, r, toDS[paddedInit], steps, toDS[paddedTarget]], 1]
         ]
     ]
+
+(* WL fallback for BigInteger rules *)
+CellularAutomatonTest[rules : {__Integer}, Rule[init_List, target_List], steps_Integer, {k_Integer, r_Integer}] :=
+    Select[rules, caTestSingle[#, k, r, init, target, steps] &]
 
 (* List of rule numbers, elementary default *)
 CellularAutomatonTest[rules : {__Integer}, Rule[init_List, target_List], steps_Integer] :=

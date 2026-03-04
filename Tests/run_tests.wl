@@ -410,6 +410,29 @@ With[{target = CellularAutomatonOutput[30, {0, 0, 0, 1, 0, 0, 0}, 1]},
     ];
 ];
 
+print[""];
+print["--- k=4 BigInteger rules ---"];
+
+(* Rule count should be 4^64 (38+ digits) *)
+runTestQ["k=4 rule count is big", CellularAutomatonRuleCount[4, 1] > 2^64];
+
+(* CellularAutomatonOutput with BigInteger rule number *)
+With[{out = CellularAutomatonOutput[123456789012345678901234567890, 4, 1, {0,0,1,0,0}, 3]},
+    runTestQ["k=4 CellularAutomatonOutput returns list", ListQ[out]];
+    runTestQ["k=4 output elements in range", AllTrue[out, 0 <= # < 4 &]];
+];
+
+(* Random candidate search k=4 *)
+With[{r = CellularAutomatonSearch[{42 -> 100, 4, 1}, {0,0,1,0,0} -> CellularAutomatonOutput[42, 4, 1, {0,0,1,0,0}, 1], 1]},
+    runTestQ["k=4 seed search returns list", ListQ[r]];
+];
+
+(* Multi-pair sieve k=4 *)
+With[{r = CellularAutomatonSearch[{42 -> 100, 4, 1},
+        Table[Append[ConstantArray[1, n], 2] -> ConstantArray[1, 2 (n + 1)], {n, 0, 2}], 100]},
+    runTestQ["k=4 multi-pair sieve returns list", ListQ[r]];
+];
+
 (* ---- Summary ---- *)
 print[""];
 print["=== Results ==="];
