@@ -992,10 +992,48 @@ pub fn random_search_wl(
     let initial = CAState::new(init_cells.clone(), k);
     let target_state = CAState::new(target_cells.clone(), k);
 
-    // Try GPU first
+    // For rules that fit in u64: generate random u64s, use existing GPU test_rules kernel
+    let max_rule = CellularAutomaton::rule_count(k, r);
+    let rules_fit_u64 = max_rule > 0; // rule_count returns u64, so if > 0 it fits
+
     #[cfg(all(target_os = "macos", feature = "gpu"))]
-    if let Some(results) = gpu::try_random_search(n, seed, k, r, &initial, steps as usize, &target_state) {
-        return results;
+    if rules_fit_u64 {
+        use rand::prelude::*;
+        // Generate random rule numbers as u64, batch to GPU
+        let gpu_batch = 1_000_000u64; // 1M per GPU dispatch
+        let mut all_results: Vec<String> = Vec::new();
+        let mut rng = StdRng::seed_from_u64(seed);
+        let mut remaining = n;
+
+        while remaining > 0 && !wll::aborted() {
+            let batch = std::cmp::min(remaining, gpu_batch);
+            let candidates: Vec<u64> = (0..batch).map(|_| rng.gen_range(0..max_rule)).collect();
+
+            if let Some(flags) = gpu::try_test_rules(&candidates, k, r, &initial, steps as usize, &target_state) {
+                for (i, &flag) in flags.iter().enumerate() {
+                    if flag == 1 {
+                        all_results.push(candidates[i].to_string());
+                    }
+                }
+            } else {
+                // GPU unavailable, break out and use CPU fallback below
+                break;
+            }
+            remaining -= batch;
+        }
+
+        if remaining == 0 {
+            return all_results;
+        }
+        // If we broke out due to GPU unavailability, fall through to CPU
+    }
+
+    // Try BigInt GPU random search (for k>=4)
+    #[cfg(all(target_os = "macos", feature = "gpu"))]
+    if !rules_fit_u64 {
+        if let Some(results) = gpu::try_random_search(n, seed, k, r, &initial, steps as usize, &target_state) {
+            return results;
+        }
     }
 
     // CPU fallback
