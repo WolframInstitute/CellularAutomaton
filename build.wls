@@ -14,8 +14,6 @@ paclet = PacletObject[publisher <> "/" <> name]
 DeleteDirectory[FileNameJoin[{name, "Binaries"}], DeleteContents -> True]
 DeleteDirectory[FileNameJoin[{name, "Libs", "target"}], DeleteContents -> True]
 CargoCollect[ParentDirectory[paclet["Location"]], FileNameJoin[{name, "Binaries"}]]
-(* Also build locally with GPU support for native macOS *)
-CargoBuild[paclet]
 pacletFile = CreatePacletArchive[name]
 
 Echo[StringTemplate["Paclet `` has size ``"][pacletFile, FileSize[pacletFile]]]
