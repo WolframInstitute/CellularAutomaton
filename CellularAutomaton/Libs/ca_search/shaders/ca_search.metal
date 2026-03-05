@@ -45,7 +45,7 @@ uint evolve_and_measure_width(
     return nr - nl + 1;
 }
 
-// Check if final state matches target exactly
+// Check if final state matches target exactly (with convergence-based early exit)
 bool evolve_and_match(
     thread const uchar* table,
     uint k,
@@ -62,10 +62,20 @@ bool evolve_and_match(
     for (uint step = 0; step < steps; step++) {
         thread uchar* src = (step & 1) ? b : a;
         thread uchar* dst = (step & 1) ? a : b;
+        int changed = 0;
         for (uint i = 0; i < tape_width; i++) {
             uint li = (i == 0) ? (tape_width - 1) : (i - 1);
             uint ri = (i + 1 >= tape_width) ? 0 : (i + 1);
-            dst[i] = table[src[li] * k2 + src[i] * k + src[ri]];
+            uchar v = table[src[li] * k2 + src[i] * k + src[ri]];
+            dst[i] = v;
+            if (v != src[i]) changed = 1;
+        }
+        // Converged: check target immediately
+        if (!changed) {
+            for (uint i = 0; i < tape_width; i++) {
+                if (dst[i] != target[i]) return false;
+            }
+            return true;
         }
     }
 
@@ -587,15 +597,36 @@ kernel void ca_search_free(
         val /= k;
     }
 
-    // Test against all pairs
-    for (uint p = 0; p < num_pairs; p++) {
-        // Copy init for this pair
-        uint offset = p * tape_width;
-        uchar init[MAX_TAPE];
-        for (uint i = 0; i < tape_width; i++) init[i] = init_cells[offset + i];
+    // Test against all pairs using single-buffer in-place evolution
+    // (same approach as NKS kernel — prev preserves old left neighbor for parallel semantics)
+    uint k2 = k * k;
+    uchar a[MAX_TAPE];
 
-        if (!evolve_and_match(table, k, init, target_cells + offset, tape_width, steps)) {
-            return;  // Failed this pair, skip
+    for (uint p = 0; p < num_pairs; p++) {
+        uint offset = p * tape_width;
+
+        // Copy init for this pair
+        for (uint i = 0; i < tape_width; i++) a[i] = init_cells[offset + i];
+
+        // Evolve with convergence detection
+        bool converged = false;
+        for (uint step = 0; step < steps; step++) {
+            int changed = 0;
+            uchar prev = 0; // left boundary = 0
+            for (uint i = 0; i < tape_width; i++) {
+                uchar curr = a[i];
+                uchar next = (i + 1 < tape_width) ? a[i + 1] : 0;
+                uchar v = table[prev * k2 + curr * k + next];
+                a[i] = v;
+                if (v != curr) changed = 1;
+                prev = curr;
+            }
+            if (!changed) { converged = true; break; }
+        }
+
+        // Check against target
+        for (uint i = 0; i < tape_width; i++) {
+            if (a[i] != target_cells[offset + i]) return;
         }
     }
 

@@ -235,34 +235,43 @@ CellularAutomatonSearch[{3, 1}, pairs:{__Rule}, steps_Integer] /; isDoublerPatte
         fromDS @ FindDoublersK3R1Rust[maxN]
     ]
 
-(* General multi-pair GPU search: test all pairs simultaneously on GPU *)
-(* Fixes f(0,0,0)=0 (quiescent constraint), searches k^(tableSize-1) free-digit space *)
-(* GPU threads that fail any pair exit immediately → effective throughput >> single-pair *)
+(* General multi-pair GPU search using free-digit parameterization *)
+(* Search smallest pair first (tiny tape = fast), then filter through rest *)
 CellularAutomatonSearch[{k_Integer, r_Integer}, pairs:{__Rule}, steps_Integer] /;
         k <= 4 && r == 1 && Length[pairs] > 1 :=
     Module[{tableSize, fixedDigits, freePositions, fixedPositions,
-            padWidth, paddedPairs, initFlat, targetFlat},
+            sortedPairs, firstPair, padWidth, paddedInit, paddedTarget, candidates},
         tableSize = k^(2 r + 1);
-        (* Quiescent constraint: f(0,0,...,0) = 0 — cells far from pattern stay 0 *)
-        fixedDigits = {{0, 0}};
+        (* Structural constraints for k=3 r=1: 7 fixed, 20 free → 3^20 = 3.5B *)
+        fixedDigits = If[k == 3,
+            {{0, 0}, {1, 0}, {2, 0}, {4, 1}, {9, 0}, {12, 1}, {13, 1}},
+            {{0, 0}}
+        ];
         fixedPositions = fixedDigits[[All, 1]];
         freePositions = Complement[Range[0, tableSize - 1], fixedPositions];
         
-        (* Pad all pairs to same width *)
-        padWidth = Max[Max[Length[First[#]], Length[Last[#]]] & /@ pairs] + 2 * steps + 2;
-        paddedPairs = Table[
-            padCenter[First[pair], padWidth, k] -> padCenter[Last[pair], padWidth, k],
-            {pair, pairs}
-        ];
-        initFlat = Flatten[paddedPairs[[All, 1]]];
-        targetFlat = Flatten[paddedPairs[[All, 2]]];
-
-        fromDS @ SearchFreeRust[
+        (* Sort pairs by tape size needed (smallest first) *)
+        sortedPairs = SortBy[pairs, Max[Length[First[#]], Length[Last[#]]] &];
+        firstPair = First[sortedPairs];
+        
+        (* Pad based on pattern size, not steps — convergence happens quickly,
+           patterns reaching tape edge fail target check correctly *)
+        padWidth = Max[Length[First[firstPair]], Length[Last[firstPair]]] * 4 + 2;
+        paddedInit = padCenter[First[firstPair], padWidth, k];
+        paddedTarget = padCenter[Last[firstPair], padWidth, k];
+        
+        candidates = fromDS @ SearchFreeRust[
             toDS[Flatten[fixedDigits]],
             toDS[freePositions],
             k, r,
-            toDS[initFlat], toDS[targetFlat],
-            padWidth, steps, Length[pairs]
+            toDS[paddedInit], toDS[paddedTarget],
+            padWidth, steps, 1
+        ];
+        
+        (* Filter candidates through remaining pairs *)
+        If[Length[candidates] > 0 && Length[sortedPairs] > 1,
+            CellularAutomatonSearch[{candidates, k, r}, Rest[sortedPairs], steps],
+            candidates
         ]
     ]
 
