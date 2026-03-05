@@ -235,8 +235,36 @@ CellularAutomatonSearch[{3, 1}, pairs:{__Rule}, steps_Integer] /; isDoublerPatte
         fromDS @ FindDoublersK3R1Rust[maxN]
     ]
 
-(* General multi-pair: sieve on first pair, filter rest via CellularAutomatonTest *)
-(* For k=3 r=1 exhaustive, 3^27 is too large — use {seed -> n} random sampling instead *)
+(* General multi-pair GPU search: test all pairs simultaneously on GPU *)
+(* Fixes f(0,0,0)=0 (quiescent constraint), searches k^(tableSize-1) free-digit space *)
+(* GPU threads that fail any pair exit immediately → effective throughput >> single-pair *)
+CellularAutomatonSearch[{k_Integer, r_Integer}, pairs:{__Rule}, steps_Integer] /;
+        k <= 4 && r == 1 && Length[pairs] > 1 :=
+    Module[{tableSize, fixedDigits, freePositions, fixedPositions,
+            padWidth, paddedPairs, initFlat, targetFlat},
+        tableSize = k^(2 r + 1);
+        (* Quiescent constraint: f(0,0,...,0) = 0 — cells far from pattern stay 0 *)
+        fixedDigits = {{0, 0}};
+        fixedPositions = fixedDigits[[All, 1]];
+        freePositions = Complement[Range[0, tableSize - 1], fixedPositions];
+        
+        (* Pad all pairs to same width *)
+        padWidth = Max[Max[Length[First[#]], Length[Last[#]]] & /@ pairs] + 2 * steps + 2;
+        paddedPairs = Table[
+            padCenter[First[pair], padWidth, k] -> padCenter[Last[pair], padWidth, k],
+            {pair, pairs}
+        ];
+        initFlat = Flatten[paddedPairs[[All, 1]]];
+        targetFlat = Flatten[paddedPairs[[All, 2]]];
+
+        fromDS @ SearchFreeRust[
+            toDS[Flatten[fixedDigits]],
+            toDS[freePositions],
+            k, r,
+            toDS[initFlat], toDS[targetFlat],
+            padWidth, steps, Length[pairs]
+        ]
+    ]
 
 (* {k, r} with pair list: search all rules on first pair, sieve rest *)
 CellularAutomatonSearch[{k_Integer, r_Integer}, pairs:{__Rule}, steps_Integer] :=
