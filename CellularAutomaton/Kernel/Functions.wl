@@ -509,10 +509,10 @@ CellularAutomatonWidthRatioSearch[inits:{__List}, steps_Integer, ratio_?NumericQ
 (* CARuleIterator[k, r, fixedRules] creates a compiled iterator over all rule numbers
    consistent with the given fixed pattern constraints.
    fixedRules: list of {left_, center_, right_} -> val pattern rules
-   Returns: DataStructure supporting ["Next"] to yield successive rule numbers *)
+   Returns: object supporting ["Next"] and ["Send", ruleNumber] *)
 CARuleIterator[k_Integer, r_Integer, fixedRules_List] :=
     Module[{tableSize, neighborhoods, fixed, freePos, numFree,
-            fixedContribution, freeMultipliers, iterFn},
+            fixedContribution, freeMultipliers, iterFn, obj, currentIter, total},
         tableSize = k^(2 r + 1);
         neighborhoods = Tuples[Range[0, k - 1], 2 r + 1];
         
@@ -531,16 +531,17 @@ CARuleIterator[k_Integer, r_Integer, fixedRules_List] :=
         
         freePos = Complement[Range[0, tableSize - 1], Keys[fixed]];
         numFree = Length[freePos];
+        total = k^numFree;
         
         (* Precompute: fixed contribution + positional multipliers for free digits *)
         fixedContribution = Total[KeyValueMap[#2 * k^#1 &, fixed]];
         freeMultipliers = k^freePos;
         
-        (* Compile coroutine: iterates base-k free-digit space, yields rule numbers *)
+        (* Compile coroutine: iterates base-k free-digit space from startIdx *)
         With[{fc = fixedContribution, fm = freeMultipliers, nf = numFree, kk = k},
             iterFn = FunctionCompile[
                 IncrementalFunction[
-                    Function[{Typed[total, "MachineInteger"]},
+                    Function[{Typed[startIdx, "MachineInteger"], Typed[endIdx, "MachineInteger"]},
                         Module[{idx, j, val, ruleNum, digit},
                             Do[
                                 ruleNum = fc;
@@ -552,14 +553,33 @@ CARuleIterator[k_Integer, r_Integer, fixedRules_List] :=
                                     {j, nf}
                                 ];
                                 IncrementalYield[ruleNum],
-                                {idx, 0, total - 1}
+                                {idx, startIdx, endIdx - 1}
                             ]
                         ]
                     ]
                 ]
-            ];
-            iterFn[kk^nf]
-        ]
+            ]
+        ];
+        
+        (* WL wrapper: "Send" reverse-maps rule number to free-digit index *)
+        currentIter = iterFn[0, total];
+        
+        obj["Next"] := currentIter["Next"];
+        obj["Send", ruleNum_Integer] := (
+            (* Reverse-map: extract free digits from rule number, compute index *)
+            Module[{digits, freeDigits, freeIdx},
+                digits = IntegerDigits[ruleNum, k, tableSize];
+                digits = Reverse[digits]; (* little-endian: position i at index i+1 *)
+                freeDigits = digits[[freePos + 1]];
+                freeIdx = FromDigits[Reverse[freeDigits], k];
+                currentIter = iterFn[freeIdx, total];
+                currentIter["Next"]
+            ]
+        );
+        obj["Total"] := total;
+        obj["NumFree"] := numFree;
+        
+        obj
     ]
 
 (* Default k=3 r=1 fixed constraints: structural symmetry from NKS analysis *)
