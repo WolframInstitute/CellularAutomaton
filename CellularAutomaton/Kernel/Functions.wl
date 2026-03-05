@@ -27,6 +27,10 @@ CellularAutomatonTest::usage = "CellularAutomatonTest[{rule, k, r}, init \[Rule]
 
 CellularAutomatonPlot
 
+CARuleIterator::usage = "CARuleIterator[k, r, fixedRules] creates a compiled iterator over CA rule numbers consistent with the given fixed pattern constraints. Use iter[\"Next\"] to yield successive rule numbers."
+
+$CARuleFixedConstraintsK3R1::usage = "$CARuleFixedConstraintsK3R1 is the list of 7 structural fixed constraints for k=3, r=1 CAs with patterns embedded in 0-background."
+
 
 Begin["`Private`"];
 
@@ -499,6 +503,73 @@ CellularAutomatonWidthRatioSearch[inits:{__List}, steps_Integer, ratio_?NumericQ
 
 CellularAutomatonWidthRatioSearch[inits:{__List}, steps_Integer, ratio_?NumericQ, rules_List] :=
     CellularAutomatonWidthRatioSearch[inits, steps, ratio, {2, 1}, rules]
+
+(* === Rule iterator === *)
+
+(* CARuleIterator[k, r, fixedRules] creates a compiled iterator over all rule numbers
+   consistent with the given fixed pattern constraints.
+   fixedRules: list of {left_, center_, right_} -> val pattern rules
+   Returns: DataStructure supporting ["Next"] to yield successive rule numbers *)
+CARuleIterator[k_Integer, r_Integer, fixedRules_List] :=
+    Module[{tableSize, neighborhoods, fixed, freePos, numFree,
+            fixedContribution, freeMultipliers, iterFn},
+        tableSize = k^(2 r + 1);
+        neighborhoods = Tuples[Range[0, k - 1], 2 r + 1];
+        
+        (* Expand pattern rules with _ to concrete {idx -> val} *)
+        fixed = Association @@ Flatten[
+            Table[
+                With[{lhs = First[rule], rhs = Last[rule]},
+                    Thread[
+                        (FromDigits[#, k] & /@ 
+                            Select[neighborhoods, MatchQ[#, lhs] &]) -> rhs
+                    ]
+                ],
+                {rule, fixedRules}
+            ]
+        ];
+        
+        freePos = Complement[Range[0, tableSize - 1], Keys[fixed]];
+        numFree = Length[freePos];
+        
+        (* Precompute: fixed contribution + positional multipliers for free digits *)
+        fixedContribution = Total[KeyValueMap[#2 * k^#1 &, fixed]];
+        freeMultipliers = k^freePos;
+        
+        (* Compile coroutine: iterates base-k free-digit space, yields rule numbers *)
+        With[{fc = fixedContribution, fm = freeMultipliers, nf = numFree, kk = k},
+            iterFn = FunctionCompile[
+                IncrementalFunction[
+                    Function[{Typed[total, "MachineInteger"]},
+                        Module[{idx, j, val, ruleNum, digit},
+                            Do[
+                                ruleNum = fc;
+                                val = idx;
+                                Do[
+                                    digit = Mod[val, kk];
+                                    ruleNum = ruleNum + digit * fm[[j]];
+                                    val = Quotient[val, kk],
+                                    {j, nf}
+                                ];
+                                IncrementalYield[ruleNum],
+                                {idx, 0, total - 1}
+                            ]
+                        ]
+                    ]
+                ]
+            ];
+            iterFn[kk^nf]
+        ]
+    ]
+
+(* Default k=3 r=1 fixed constraints: structural symmetry from NKS analysis *)
+$CARuleFixedConstraintsK3R1 = {
+    {0, 0, _} -> 0,   (* background/boundary stays 0 *)
+    {1, 0, 0} -> 0,   (* right boundary stays 0 *)
+    {0, 1, 1} -> 1,   (* all-1 interior preserved *)
+    {1, 1, 0} -> 1,   (* all-1 right edge preserved *)
+    {1, 1, 1} -> 1    (* all-1 interior preserved *)
+};
 
 
 End[]
