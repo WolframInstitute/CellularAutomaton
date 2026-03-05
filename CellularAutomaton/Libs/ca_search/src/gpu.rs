@@ -23,6 +23,7 @@ pub struct GpuSearchEngine {
     #[allow(dead_code)]
     filter_width_list_pipeline: ComputePipelineState,
     random_search_pipeline: Option<ComputePipelineState>,
+    search_free_pipeline: Option<ComputePipelineState>,
 }
 
 impl GpuSearchEngine {
@@ -47,6 +48,7 @@ impl GpuSearchEngine {
         let filter_width_list_pipeline = make_pipeline("ca_filter_width_list")?;
         // Random search is optional — may fail if MAX_TAPE is too large for GPU
         let random_search_pipeline = make_pipeline("ca_random_search");
+        let search_free_pipeline = make_pipeline("ca_search_free");
 
         let queue = device.new_command_queue();
 
@@ -60,6 +62,7 @@ impl GpuSearchEngine {
             test_rules_pipeline,
             filter_width_list_pipeline,
             random_search_pipeline,
+            search_free_pipeline,
         })
     }
 
@@ -683,3 +686,132 @@ pub fn try_random_search(
     })
 }
 
+const GPU_FREE_BATCH: u64 = 100_000_000; // 100M per GPU dispatch
+
+/// GPU-accelerated search over the free-digit space.
+/// fixed_digits: Vec<(u8, u8)> = (position, value) for each fixed table entry
+/// free_positions: Vec<u8> = positions of free table entries
+/// Returns rule numbers (u64) for rules where ALL pairs match.
+pub fn try_search_free(
+    k: u32,
+    r: u32,
+    fixed_digits: &[(u8, u8)],
+    free_positions: &[u8],
+    pairs: &[(CAState, CAState)],  // (init, target) pairs, already padded to same width
+    steps: usize,
+) -> Option<Vec<u64>> {
+    if r != 1 || k > 4 || pairs.is_empty() {
+        return None;
+    }
+    let tape_width = pairs[0].0.cells.len();
+    if tape_width > 512 {
+        return None;
+    }
+
+    let table_size = (k as u64).pow((2 * r + 1) as u32) as usize;
+    let num_free = free_positions.len();
+    let total: u64 = (k as u64).pow(num_free as u32);
+
+    GPU_ENGINE.with(|engine| {
+        let engine = engine.as_ref()?;
+        let pipeline = engine.search_free_pipeline.as_ref()?;
+        let max_threads = pipeline.max_total_threads_per_threadgroup();
+
+        // Prepare fixed digits buffer: [pos0, val0, pos1, val1, ...]
+        let fixed_flat: Vec<u8> = fixed_digits.iter()
+            .flat_map(|&(pos, val)| vec![pos, val])
+            .collect();
+        let fixed_buf = engine.device.new_buffer_with_data(
+            fixed_flat.as_ptr() as *const _,
+            std::cmp::max(fixed_flat.len() as u64, 1),
+            MTLResourceOptions::StorageModeShared,
+        );
+
+        // Free positions buffer
+        let free_buf = engine.device.new_buffer_with_data(
+            free_positions.as_ptr() as *const _,
+            free_positions.len() as u64,
+            MTLResourceOptions::StorageModeShared,
+        );
+
+        // Concatenate all init and target cells
+        let mut all_init: Vec<u8> = Vec::new();
+        let mut all_target: Vec<u8> = Vec::new();
+        for (init, target) in pairs {
+            all_init.extend_from_slice(&init.cells);
+            all_target.extend_from_slice(&target.cells);
+        }
+        let init_buf = engine.device.new_buffer_with_data(
+            all_init.as_ptr() as *const _,
+            all_init.len() as u64,
+            MTLResourceOptions::StorageModeShared,
+        );
+        let target_buf = engine.device.new_buffer_with_data(
+            all_target.as_ptr() as *const _,
+            all_target.len() as u64,
+            MTLResourceOptions::StorageModeShared,
+        );
+
+        // params: [start_idx, count, k, table_size, num_free, tape_width, steps, num_pairs]
+        let params_buf = engine.device.new_buffer(
+            8 * mem::size_of::<u64>() as u64,
+            MTLResourceOptions::StorageModeShared,
+        );
+        let counter_buf = engine.device.new_buffer(4, MTLResourceOptions::StorageModeShared);
+        let result_buf = engine.device.new_buffer(
+            1_000_000 * mem::size_of::<u64>() as u64,
+            MTLResourceOptions::StorageModeShared,
+        );
+
+        let n_batches = (total + GPU_FREE_BATCH - 1) / GPU_FREE_BATCH;
+        let mut all_results: Vec<u64> = Vec::new();
+
+        for batch in 0..n_batches {
+            if wll::aborted() { break; }
+            let batch_start = batch * GPU_FREE_BATCH;
+            let count = GPU_FREE_BATCH.min(total - batch_start);
+
+            unsafe {
+                let ptr = params_buf.contents() as *mut u64;
+                *ptr.add(0) = batch_start;
+                *ptr.add(1) = count;
+                *ptr.add(2) = k as u64;
+                *ptr.add(3) = table_size as u64;
+                *ptr.add(4) = num_free as u64;
+                *ptr.add(5) = tape_width as u64;
+                *ptr.add(6) = steps as u64;
+                *ptr.add(7) = pairs.len() as u64;
+                *(counter_buf.contents() as *mut u32) = 0;
+            }
+
+            let cb = engine.queue.new_command_buffer();
+            let enc = cb.new_compute_command_encoder();
+            enc.set_compute_pipeline_state(pipeline);
+            enc.set_buffer(0, Some(&params_buf), 0);
+            enc.set_buffer(1, Some(&fixed_buf), 0);
+            enc.set_buffer(2, Some(&free_buf), 0);
+            enc.set_buffer(3, Some(&init_buf), 0);
+            enc.set_buffer(4, Some(&target_buf), 0);
+            enc.set_buffer(5, Some(&counter_buf), 0);
+            enc.set_buffer(6, Some(&result_buf), 0);
+            enc.dispatch_threads(
+                MTLSize::new(count, 1, 1),
+                MTLSize::new(max_threads as u64, 1, 1),
+            );
+            enc.end_encoding();
+            cb.commit();
+            cb.wait_until_completed();
+
+            let found = unsafe { *(counter_buf.contents() as *const u32) };
+            if found > 0 {
+                let n = (found as usize).min(1_000_000);
+                let ptr = result_buf.contents() as *const u64;
+                for i in 0..n {
+                    all_results.push(unsafe { *ptr.add(i) });
+                }
+            }
+        }
+
+        Some(all_results)
+    })
+}

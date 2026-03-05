@@ -1126,3 +1126,79 @@ pub fn random_sieve_wl(
         .collect()
 }
 
+/// GPU free-digit search: search the free-digit CA rule space exhaustively.
+/// fixed_digits_flat: [pos0, val0, pos1, val1, ...] flattened fixed digit pairs
+/// free_positions: [pos0, pos1, ...] free digit positions
+/// init_cells_flat: concatenated padded init cells for all pairs
+/// target_cells_flat: concatenated padded target cells for all pairs
+/// tape_width: width of each padded tape
+/// num_pairs: number of init→target pairs
+#[wll::export]
+pub fn search_free_wl(
+    fixed_digits_flat: Vec<i32>,
+    free_positions: Vec<i32>,
+    k: u32,
+    r: u32,
+    init_cells_flat: Vec<i32>,
+    target_cells_flat: Vec<i32>,
+    tape_width: u64,
+    steps: u64,
+    num_pairs: u64,
+) -> Vec<u64> {
+    let fixed_digits: Vec<(u8, u8)> = fixed_digits_flat
+        .chunks(2)
+        .map(|c| (c[0] as u8, c[1] as u8))
+        .collect();
+    let free_pos: Vec<u8> = free_positions.iter().map(|&p| p as u8).collect();
+
+    let tw = tape_width as usize;
+    let np = num_pairs as usize;
+    let mut pairs: Vec<(CAState, CAState)> = Vec::new();
+    for i in 0..np {
+        let init_cells: Vec<u8> = init_cells_flat[i * tw..(i + 1) * tw].iter().map(|&c| c as u8).collect();
+        let target_cells: Vec<u8> = target_cells_flat[i * tw..(i + 1) * tw].iter().map(|&c| c as u8).collect();
+        pairs.push((CAState::new(init_cells, k), CAState::new(target_cells, k)));
+    }
+
+    #[cfg(all(target_os = "macos", feature = "gpu"))]
+    if let Some(results) = gpu::try_search_free(k, r, &fixed_digits, &free_pos, &pairs, steps as usize) {
+        return results;
+    }
+
+    // CPU fallback: exhaustive search over free-digit space
+    use rayon::prelude::*;
+    let table_size = (k as u64).pow((2 * r + 1) as u32) as usize;
+    let num_free = free_pos.len();
+    let total: u64 = (k as u64).pow(num_free as u32);
+
+    (0..total)
+        .into_par_iter()
+        .filter_map(|idx| {
+            if wll::aborted() { return None; }
+            let mut table = vec![0u8; table_size];
+            for &(pos, val) in &fixed_digits {
+                table[pos as usize] = val;
+            }
+            let mut val = idx;
+            for &pos in &free_pos {
+                table[pos as usize] = (val % k as u64) as u8;
+                val /= k as u64;
+            }
+            let ca = CellularAutomaton::from_table(table.clone(), k, r);
+            for (init, target) in &pairs {
+                let final_state = ca.evolve_final(init, steps as usize);
+                if final_state.cells != target.cells {
+                    return None;
+                }
+            }
+            // Compute rule number as u64
+            let mut rule_num: u64 = 0;
+            let mut pow_k: u64 = 1;
+            for &d in &table {
+                rule_num += d as u64 * pow_k;
+                pow_k *= k as u64;
+            }
+            Some(rule_num)
+        })
+        .collect()
+}

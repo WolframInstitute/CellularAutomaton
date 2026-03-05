@@ -101,6 +101,7 @@ RunCABigIntRust := functions["run_ca_bigint_wl"]
 TestRulesBigIntRust := functions["test_rules_bigint_wl"]
 RandomSearchRust := functions["random_search_wl"]
 RandomSieveRust := functions["random_sieve_wl"]
+SearchFreeRust := functions["search_free_wl"]
 
 (* Helper: convert WL list to DataStore for WLL Vec<T> arguments *)
 toDS[list_List] := Developer`DataStore @@ list
@@ -233,6 +234,9 @@ CellularAutomatonSearch[{3, 1}, pairs:{__Rule}, steps_Integer] /; isDoublerPatte
     With[{maxN = Max[Length[First[#]] & /@ pairs]},
         fromDS @ FindDoublersK3R1Rust[maxN]
     ]
+
+(* General multi-pair: sieve on first pair, filter rest via CellularAutomatonTest *)
+(* For k=3 r=1 exhaustive, 3^27 is too large — use {seed -> n} random sampling instead *)
 
 (* {k, r} with pair list: search all rules on first pair, sieve rest *)
 CellularAutomatonSearch[{k_Integer, r_Integer}, pairs:{__Rule}, steps_Integer] :=

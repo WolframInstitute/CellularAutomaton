@@ -530,3 +530,85 @@ kernel void ca_random_search(
         }
     }
 }
+
+// ============================================================================
+// General free-digit search kernel: configurable fixed/free digit parameterization
+// with standard parallel CA evolution. Works for any k, any init→target.
+// ============================================================================
+
+// params[0] = start_idx (offset into free-digit combination space)
+// params[1] = count (number of combinations to test)
+// params[2] = k (colors)
+// params[3] = table_size (k^3 for r=1)
+// params[4] = num_free (number of free digit positions)
+// params[5] = tape_width
+// params[6] = steps
+// params[7] = num_pairs (number of init→target pairs to test)
+// fixed_digits: [pos0, val0, pos1, val1, ...] pairs of (position, value) for fixed entries
+// free_positions: [pos0, pos1, ...] positions of free entries in the table
+// init_cells: padded init cells (for first pair)
+// target_cells: padded target cells (for first pair)
+// For multi-pair: init/target are concatenated, each of length tape_width
+kernel void ca_search_free(
+    device const uint64_t* params [[buffer(0)]],
+    device const uchar* fixed_digits [[buffer(1)]],
+    device const uchar* free_positions [[buffer(2)]],
+    device const uchar* init_cells [[buffer(3)]],
+    device const uchar* target_cells [[buffer(4)]],
+    device atomic_uint* result_count [[buffer(5)]],
+    device uint64_t* result_rules [[buffer(6)]],
+    uint tid [[thread_position_in_grid]]
+) {
+    uint64_t count = params[1];
+    if (tid >= count) return;
+
+    uint64_t free_idx = params[0] + (uint64_t)tid;
+    uint k = (uint)params[2];
+    uint table_size = (uint)params[3];
+    uint num_free = (uint)params[4];
+    uint tape_width = (uint)params[5];
+    uint steps = (uint)params[6];
+    uint num_pairs = (uint)params[7];
+    if (num_pairs == 0) num_pairs = 1;
+
+    // Build rule table
+    uchar table[MAX_TABLE];
+
+    // Set fixed digits: fixed_digits is [pos, val, pos, val, ...]
+    uint num_fixed = table_size - num_free;
+    for (uint i = 0; i < num_fixed; i++) {
+        table[fixed_digits[2 * i]] = fixed_digits[2 * i + 1];
+    }
+
+    // Set free digits from thread index (base-k decomposition)
+    uint64_t val = free_idx;
+    for (uint i = 0; i < num_free; i++) {
+        table[free_positions[i]] = (uchar)(val % k);
+        val /= k;
+    }
+
+    // Test against all pairs
+    for (uint p = 0; p < num_pairs; p++) {
+        // Copy init for this pair
+        uint offset = p * tape_width;
+        uchar init[MAX_TAPE];
+        for (uint i = 0; i < tape_width; i++) init[i] = init_cells[offset + i];
+
+        if (!evolve_and_match(table, k, init, target_cells + offset, tape_width, steps)) {
+            return;  // Failed this pair, skip
+        }
+    }
+
+    // All pairs passed — compute rule number
+    uint64_t rule_number = 0;
+    uint64_t pow_k = 1;
+    for (uint d = 0; d < table_size; d++) {
+        rule_number += (uint64_t)table[d] * pow_k;
+        pow_k *= k;
+    }
+
+    uint pos = atomic_fetch_add_explicit(result_count, 1, memory_order_relaxed);
+    if (pos < 1000000) {
+        result_rules[pos] = rule_number;
+    }
+}
