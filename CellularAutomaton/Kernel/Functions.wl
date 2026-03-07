@@ -236,7 +236,12 @@ isDoublerPattern[pairs:{__Rule}] :=
 (* NOTE: This finds NKS-style doublers (sequential-scan update), not standard parallel CA *)
 CellularAutomatonSearch[{3, 1}, pairs:{__Rule}, steps_Integer] /; isDoublerPattern[pairs] :=
     With[{maxN = Max[Length[First[#]] & /@ pairs]},
-        fromDS @ FindDoublersK3R1Rust[maxN]
+        With[{gpuCandidates = fromDS @ FindDoublersK3R1Rust[Min[maxN, 12]]},
+            If[maxN <= 12,
+                gpuCandidates,
+                fromDS @ FilterDoublersK3R1Rust[toDS[gpuCandidates], maxN]
+            ]
+        ]
     ]
 
 (* General multi-pair GPU search using free-digit parameterization *)
@@ -467,11 +472,19 @@ isNKSDoublerPattern[init_List] := init === Append[ConstantArray[1, Length[init] 
 
 (* Specialized fast path: ratio=2, k=3, r=1 with NKS-standard patterns *)
 CellularAutomatonWidthRatioSearch[inits:{__List}, steps_Integer, 2, {3, 1}] /; AllTrue[inits, isNKSDoublerPattern] :=
-    fromDS @ FindDoublersK3R1Rust[Max[Length /@ inits]]
+    With[{maxN = Max[Length /@ inits]},
+        With[{gpuCandidates = fromDS @ FindDoublersK3R1Rust[Min[maxN, 12]]},
+            If[maxN <= 12,
+                gpuCandidates,
+                (* GPU only tested up to 12; refine with full range on CPU *)
+                fromDS @ FilterDoublersK3R1Rust[toDS[gpuCandidates], maxN]
+            ]
+        ]
+    ]
 
 (* Non-NKS inits, ratio=2, k=3, r=1: use NKS doubler as pre-filter, then verify with actual inits *)
 CellularAutomatonWidthRatioSearch[inits:{__List}, steps_Integer, 2, {3, 1}] :=
-    With[{candidates = fromDS @ FindDoublersK3R1Rust[Max[Length /@ inits]]},
+    With[{candidates = fromDS @ FindDoublersK3R1Rust[Min[Max[Length /@ inits], 12]]},
         CellularAutomatonWidthRatioSearch[inits, steps, 2, {3, 1}, candidates]
     ]
 

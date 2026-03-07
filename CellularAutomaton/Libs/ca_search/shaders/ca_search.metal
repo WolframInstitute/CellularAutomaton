@@ -297,7 +297,8 @@ kernel void ca_find_doublers(
 
     uint64_t free_idx = params[0] + (uint64_t)tid;
     uint num_tests = (uint)params[2];
-    if (num_tests == 0 || num_tests > 12) num_tests = 7;
+    if (num_tests == 0) num_tests = 7;
+    if (num_tests > 12) num_tests = 12;  // tape limit: 1201 cells
 
     // Build rule table: 7 fixed digits, 20 free
     uchar table[27];
