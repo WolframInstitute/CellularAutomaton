@@ -679,9 +679,9 @@ CellularAutomatonWidthRatioSearch[inits:{__List}, steps_Integer, ratio_?NumericQ
     ]
 
 CellularAutomatonWidthRatioSearch[inits:{__List}, steps_Integer, ratio_, {k_Integer, r_Integer},
-        minRule_Integer ;; maxRule_Integer] :=
+        minRule_Integer ;; maxRule_Integer, opts:OptionsPattern[CellularAutomatonWidthRatioSearch]] :=
     CellularAutomatonWidthRatioSearch[inits, steps, ratio, {k, r}, minRule ;; maxRule,
-        Max[Length /@ inits]]
+        Max[Length /@ inits], opts]
 
 (* Helper: check if init is NKS-standard doubler pattern {1,...,1,2} *)
 isNKSDoublerPattern[init_List] := init === Append[ConstantArray[1, Length[init] - 1], 2]
@@ -723,12 +723,13 @@ CellularAutomatonWidthRatioSearch[inits:{__List}, steps_Integer, 2, {3, 1}, rule
             2, 1, Max[Length /@ inits]]
     ]
 
-CellularAutomatonWidthRatioSearch[inits:{__List}, steps_Integer, ratio_, {k_Integer, r_Integer}] :=
+CellularAutomatonWidthRatioSearch[inits:{__List}, steps_Integer, ratio_, {k_Integer, r_Integer},
+        opts:OptionsPattern[CellularAutomatonWidthRatioSearch]] :=
     CellularAutomatonWidthRatioSearch[inits, steps, ratio, {k, r},
-        0 ;; CellularAutomatonRuleCount[k, r] - 1]
+        0 ;; CellularAutomatonRuleCount[k, r] - 1, opts]
 
-CellularAutomatonWidthRatioSearch[inits:{__List}, steps_Integer, ratio_] :=
-    CellularAutomatonWidthRatioSearch[inits, steps, ratio, {2, 1}]
+CellularAutomatonWidthRatioSearch[inits:{__List}, steps_Integer, ratio_, opts:OptionsPattern[CellularAutomatonWidthRatioSearch]] :=
+    CellularAutomatonWidthRatioSearch[inits, steps, ratio, {2, 1}, opts]
 
 (* Sieve overload: filter a provided list of candidate rules *)
 CellularAutomatonWidthRatioSearch[inits:{__List}, steps_Integer, ratio_?NumericQ, {k_Integer, r_Integer},
