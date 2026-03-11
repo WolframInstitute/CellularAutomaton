@@ -132,7 +132,7 @@ With[{db = CellularAutomatonWidthRatioSearch[{CenterArray[{1}, 41]}, 15, 2, {3, 
    so we test self-consistency, known counts, and known rules instead. *)
 
 print[""];
-print["=== 9. NKS Doubler Search (GPU: ca_find_doublers / ca_refine_doublers) ==="];
+print["=== 7. NKS Doubler Search (GPU: ca_find_doublers / ca_refine_doublers) ==="];
 print["   Sequential-scan width-doubler search over k=3 r=1 (3^20 search space)"];
 print["   Uses Append[ConstantArray[1, n], 2] init patterns"];
 
@@ -223,7 +223,7 @@ With[{sample = Take[db20, UpTo[20]]},
 ];
 
 print[""];
-print["=== 7. CellularAutomatonOutputTable (Rayon parallel) ==="];
+print["=== 8. CellularAutomatonOutputTable (Rayon parallel) ==="];
 
 timeCompare["256 rules, width 11, 5 steps",
     CellularAutomatonOutputTable[2, 1, CenterArray[{1}, 11], 5],
@@ -234,7 +234,7 @@ timeCompare["256 rules, width 21, 10 steps",
     CellularAutomatonOutputTable[2, 1, CenterArray[{1}, 21], 10, Method -> "Native"]];
 
 print[""];
-print["=== 8. CellularAutomatonActiveWidths (Rayon parallel) ==="];
+print["=== 9. CellularAutomatonActiveWidths (Rayon parallel) ==="];
 
 timeCompare["256 rules, width 21, 20 steps",
     CellularAutomatonActiveWidths[CenterArray[{1}, 21], 20],

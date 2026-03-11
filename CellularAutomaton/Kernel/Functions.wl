@@ -5,25 +5,30 @@ ClearAll["WolframInstitute`CellularAutomaton`*", "WolframInstitute`CellularAutom
 CellularAutomatonRuleCount::usage = "CellularAutomatonRuleCount[k, r] returns the total number of distinct cellular automaton rules for k colors and radius r."
 
 CellularAutomatonOutput::usage = "CellularAutomatonOutput[rule, k, r, init, steps] runs a 1D cellular automaton and returns the final state.
-CellularAutomatonOutput[rule, init, steps] uses elementary CA defaults (k=2, r=1)."
+CellularAutomatonOutput[rule, init, steps] uses elementary CA defaults (k=2, r=1).
+Use Method \[Rule] \"Native\" to use the built-in CellularAutomaton function instead of Rust."
 
 CellularAutomatonEvolution::usage = "CellularAutomatonEvolution[rule, k, r, init, steps] returns the full spacetime evolution as a matrix of cell values.
-CellularAutomatonEvolution[rule, init, steps] uses elementary CA defaults (k=2, r=1)."
+CellularAutomatonEvolution[rule, init, steps] uses elementary CA defaults (k=2, r=1).
+Use Method \[Rule] \"Native\" to use the built-in CellularAutomaton function instead of Rust."
 
-CellularAutomatonSearch::usage = "CellularAutomatonSearch[{k, r}, init \[Rule] target, steps] finds all CA rules matching init\[Rule]target.\nCellularAutomatonSearch[{k, r}, {init1 \[Rule] target1, ...}, steps] incrementally sieves through pairs.\nCellularAutomatonSearch[{{rn1, ...}, k, r}, ...] searches only specified candidate rules.\nCellularAutomatonSearch[{All, k, r}, ...] is equivalent to {k, r}."
+CellularAutomatonSearch::usage = "CellularAutomatonSearch[{k, r}, init \[Rule] target, steps] finds all CA rules matching init\[Rule]target.\nCellularAutomatonSearch[{k, r}, {init1 \[Rule] target1, ...}, steps] incrementally sieves through pairs.\nCellularAutomatonSearch[{{rn1, ...}, k, r}, ...] searches only specified candidate rules.\nCellularAutomatonSearch[{All, k, r}, ...] is equivalent to {k, r}.\nUse Method \[Rule] \"Native\" to use the built-in CellularAutomaton function instead of Rust/GPU."
 
 CellularAutomatonOutputTable::usage = "CellularAutomatonOutputTable[k, r, init, steps] computes the output (final state value) for all rules in the (k, r) rule space.
-CellularAutomatonOutputTable[init, steps] uses elementary defaults (k=2, r=1)."
+CellularAutomatonOutputTable[init, steps] uses elementary defaults (k=2, r=1).
+Use Method \[Rule] \"Native\" to use the built-in CellularAutomaton function instead of Rust."
 
 CellularAutomatonBoundedWidthSearch::usage = "CellularAutomatonBoundedWidthSearch[init, steps, maxWidth, {k, r}] finds all CA rules where the active region never exceeds maxWidth cells.
-CellularAutomatonBoundedWidthSearch[init, steps, maxWidth] uses elementary defaults (k=2, r=1)."
+CellularAutomatonBoundedWidthSearch[init, steps, maxWidth] uses elementary defaults (k=2, r=1).
+Use Method \[Rule] \"Native\" to use the built-in CellularAutomaton function instead of Rust."
 
 CellularAutomatonActiveWidths::usage = "CellularAutomatonActiveWidths[k, r, init, steps] returns {maxWidth, finalWidth} for each rule in the (k,r) rule space.
-CellularAutomatonActiveWidths[init, steps] uses elementary defaults (k=2, r=1)."
+CellularAutomatonActiveWidths[init, steps] uses elementary defaults (k=2, r=1).
+Use Method \[Rule] \"Native\" to use the built-in CellularAutomaton function instead of Rust."
 
-CellularAutomatonWidthRatioSearch::usage = "CellularAutomatonWidthRatioSearch[inits, steps, ratio, {k, r}, ruleRange, maxWidth] finds rules where the final active width equals ratio \[Times] input width for ALL initial conditions in inits. Fully parallelized.\nCellularAutomatonWidthRatioSearch[inits, steps, ratio, {k, r}] searches all rules.\nCellularAutomatonWidthRatioSearch[inits, steps, ratio] uses elementary defaults."
+CellularAutomatonWidthRatioSearch::usage = "CellularAutomatonWidthRatioSearch[inits, steps, ratio, {k, r}, ruleRange, maxWidth] finds rules where the final active width equals ratio \[Times] input width for ALL initial conditions in inits. Fully parallelized.\nCellularAutomatonWidthRatioSearch[inits, steps, ratio, {k, r}] searches all rules.\nCellularAutomatonWidthRatioSearch[inits, steps, ratio] uses elementary defaults.\nUse Method \[Rule] \"Native\" to use the built-in CellularAutomaton function instead of Rust/GPU."
 
-CellularAutomatonTest::usage = "CellularAutomatonTest[{rule, k, r}, init \[Rule] target, steps] returns True if the CA produces target from init.\nCellularAutomatonTest[rule, init \[Rule] target, steps] uses elementary defaults.\nCellularAutomatonTest[{{r1, k1, s1}, ...}, init \[Rule] target, steps] returns the subset of rule specs that pass.\nCellularAutomatonTest[{rule1, rule2, ...}, init \[Rule] target, steps, {k, r}] tests a list of rule numbers (parallel)."
+CellularAutomatonTest::usage = "CellularAutomatonTest[{rule, k, r}, init \[Rule] target, steps] returns True if the CA produces target from init.\nCellularAutomatonTest[rule, init \[Rule] target, steps] uses elementary defaults.\nCellularAutomatonTest[{{r1, k1, s1}, ...}, init \[Rule] target, steps] returns the subset of rule specs that pass.\nCellularAutomatonTest[{rule1, rule2, ...}, init \[Rule] target, steps, {k, r}] tests a list of rule numbers (parallel).\nUse Method \[Rule] \"Native\" to use the built-in CellularAutomaton function instead of Rust/GPU."
 
 CellularAutomatonPlot
 
