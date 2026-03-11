@@ -155,7 +155,7 @@ nativeBoundedSearch[minRule_Integer, maxRule_Integer, k_Integer, r_Integer,
 
 (* Helper: active width = extent of nonzero cells *)
 nativeActiveWidth[state_List] :=
-    With[{nz = Flatten @ Position[state, _?(# != 0 &)]},
+    With[{nz = Flatten @ Position[state, _?(# != 0 &), {1}, Heads -> False]},
         If[nz === {}, 0, Last[nz] - First[nz] + 1]
     ]
 
@@ -307,17 +307,17 @@ Options[CellularAutomatonSearch] = {Method -> Automatic};
 
 (* Single target — Native path *)
 CellularAutomatonSearch[{k_Integer, r_Integer}, Rule[init_List, target_List], steps_Integer, opts:OptionsPattern[]] /;
-    OptionValue[CellularAutomatonSearch, {opts}, Method] === "Native" :=
+    OptionValue[Method] === "Native" :=
     nativeCASearch[0, CellularAutomatonRuleCount[k, r] - 1, k, r, init, steps, target]
 
 CellularAutomatonSearch[{k_Integer, r_Integer}, Rule[init_List, target_List], steps_Integer,
     minRule_Integer ;; maxRule_Integer, opts:OptionsPattern[]] /;
-    OptionValue[CellularAutomatonSearch, {opts}, Method] === "Native" :=
+    OptionValue[Method] === "Native" :=
     nativeCASearch[minRule, maxRule, k, r, init, steps, target]
 
 (* Width target — Native path *)
 CellularAutomatonSearch[{k_Integer, r_Integer}, Rule[init_List, targetWidth_Integer], steps_Integer, opts:OptionsPattern[]] /;
-    OptionValue[CellularAutomatonSearch, {opts}, Method] === "Native" :=
+    OptionValue[Method] === "Native" :=
     nativeExactWidthSearch[0, CellularAutomatonRuleCount[k, r] - 1, k, r, {init}, steps, targetWidth]
 
 (* Single target — Rust *)
@@ -332,12 +332,12 @@ CellularAutomatonSearch[{k_Integer, r_Integer}, Rule[init_List, targetWidth_Inte
     fromDS @ FindExactWidthRulesRust[0, CellularAutomatonRuleCount[k, r] - 1, k, r,
         toDS[init], 1, steps, targetWidth]
 
-CellularAutomatonSearch[{k_Integer, r_Integer}, Rule[init_List, targetWidth_Integer], steps_Integer, minRule_Integer ;; maxRule_Integer] :=
+CellularAutomatonSearch[{k_Integer, r_Integer}, Rule[init_List, targetWidth_Integer], steps_Integer, minRule_Integer ;; maxRule_Integer, OptionsPattern[]] :=
     fromDS @ FindExactWidthRulesRust[minRule, maxRule, k, r,
         toDS[init], 1, steps, targetWidth]
 
 (* Multiple inits -> width target *)
-CellularAutomatonSearch[{k_Integer, r_Integer}, Rule[inits:{__List}, targetWidth_Integer], steps_Integer] :=
+CellularAutomatonSearch[{k_Integer, r_Integer}, Rule[inits:{__List}, targetWidth_Integer], steps_Integer, OptionsPattern[]] :=
     With[{flat = Flatten[inits], n = Length[inits]},
         fromDS @ FindExactWidthRulesRust[0, CellularAutomatonRuleCount[k, r] - 1, k, r,
             toDS[flat], n, steps, targetWidth]
@@ -346,11 +346,11 @@ CellularAutomatonSearch[{k_Integer, r_Integer}, Rule[inits:{__List}, targetWidth
 (* === Candidate list rulespec: {{rn1, ...}, k, r} === *)
 
 (* Span → range of rule numbers *)
-CellularAutomatonSearch[{span_Span, k_Integer, r_Integer}, target_, steps_Integer] :=
-    CellularAutomatonSearch[{Range @@ span, k, r}, target, steps]
+CellularAutomatonSearch[{span_Span, k_Integer, r_Integer}, target_, steps_Integer, opts:OptionsPattern[CellularAutomatonSearch]] :=
+    CellularAutomatonSearch[{Range @@ span, k, r}, target, steps, opts]
 
 (* seed -> n: use Rust-native random generation (GPU-accelerated on macOS) *)
-CellularAutomatonSearch[{Rule[seed_, n_Integer], k_Integer, r_Integer}, Rule[init_List, target_List], steps_Integer] :=
+CellularAutomatonSearch[{Rule[seed_, n_Integer], k_Integer, r_Integer}, Rule[init_List, target_List], steps_Integer, OptionsPattern[]] :=
     With[{padWidth = Max[Length[init], Length[target]] + 2 * steps + 2},
         With[{paddedInit = padCenter[init, padWidth, k],
               paddedTarget = padCenter[target, padWidth, k]},
@@ -359,7 +359,7 @@ CellularAutomatonSearch[{Rule[seed_, n_Integer], k_Integer, r_Integer}, Rule[ini
     ]
 
 (* seed -> n, multi-pair sieve: first pair via RandomSearch, rest via CellularAutomatonTest *)
-CellularAutomatonSearch[{Rule[seed_, n_Integer], k_Integer, r_Integer}, pairs:{__Rule}, steps_Integer] :=
+CellularAutomatonSearch[{Rule[seed_, n_Integer], k_Integer, r_Integer}, pairs:{__Rule}, steps_Integer, OptionsPattern[]] :=
     With[{candidates = CellularAutomatonSearch[{seed -> n, k, r}, First[pairs], steps]},
         If[Length[pairs] === 1, candidates,
             Fold[CellularAutomatonTest[#1, #2, steps, {k, r}] &, candidates, Rest[pairs]]
@@ -367,7 +367,7 @@ CellularAutomatonSearch[{Rule[seed_, n_Integer], k_Integer, r_Integer}, pairs:{_
     ]
 
 (* Single target: filter candidates *)
-CellularAutomatonSearch[{candidates_List, k_Integer, r_Integer}, Rule[init_List, target_List], steps_Integer] :=
+CellularAutomatonSearch[{candidates_List, k_Integer, r_Integer}, Rule[init_List, target_List], steps_Integer, OptionsPattern[]] :=
     CellularAutomatonTest[candidates, init -> target, steps, {k, r}]
 
 (* === Multi-pair sieve: {init1->target1, init2->target2, ...} === *)
@@ -378,7 +378,7 @@ isDoublerPattern[pairs:{__Rule}] :=
 
 (* k=3, r=1 doubler optimization: use NKS sequential-scan GPU kernel directly *)
 (* NOTE: This finds NKS-style doublers (sequential-scan update), not standard parallel CA *)
-CellularAutomatonSearch[{3, 1}, pairs:{__Rule}, steps_Integer] /; isDoublerPattern[pairs] :=
+CellularAutomatonSearch[{3, 1}, pairs:{__Rule}, steps_Integer, OptionsPattern[]] /; isDoublerPattern[pairs] :=
     With[{maxN = Max[Length[First[#]] & /@ pairs]},
         With[{gpuCandidates = fromDS @ FindDoublersK3R1Rust[Min[maxN, 12]]},
             If[maxN <= 12,
@@ -430,7 +430,7 @@ CellularAutomatonSearch[{k_Integer, r_Integer}, pairs:{__Rule}, steps_Integer] /
     ]
 
 (* {k, r} with pair list: search all rules on first pair, sieve rest *)
-CellularAutomatonSearch[{k_Integer, r_Integer}, pairs:{__Rule}, steps_Integer] :=
+CellularAutomatonSearch[{k_Integer, r_Integer}, pairs:{__Rule}, steps_Integer, OptionsPattern[]] :=
     With[{initial = CellularAutomatonSearch[{k, r}, First[pairs], steps]},
         If[Length[pairs] === 1, initial,
             CellularAutomatonSearch[{initial, k, r}, Rest[pairs], steps]
@@ -438,7 +438,7 @@ CellularAutomatonSearch[{k_Integer, r_Integer}, pairs:{__Rule}, steps_Integer] :
     ]
 
 (* Candidate list with pair list: Fold through pairs *)
-CellularAutomatonSearch[{candidates_List, k_Integer, r_Integer}, pairs:{__Rule}, steps_Integer] :=
+CellularAutomatonSearch[{candidates_List, k_Integer, r_Integer}, pairs:{__Rule}, steps_Integer, OptionsPattern[]] :=
     Fold[
         CellularAutomatonTest[#1, #2, steps, {k, r}] &,
         candidates,
@@ -447,25 +447,25 @@ CellularAutomatonSearch[{candidates_List, k_Integer, r_Integer}, pairs:{__Rule},
 
 (* === Elementary shorthands === *)
 
-CellularAutomatonSearch[Rule[init_List, target_List], steps_Integer] :=
-    CellularAutomatonSearch[{2, 1}, init -> target, steps]
+CellularAutomatonSearch[Rule[init_List, target_List], steps_Integer, opts:OptionsPattern[CellularAutomatonSearch]] :=
+    CellularAutomatonSearch[{2, 1}, init -> target, steps, opts]
 
-CellularAutomatonSearch[Rule[init_List, targetWidth_Integer], steps_Integer] :=
-    CellularAutomatonSearch[{2, 1}, init -> targetWidth, steps]
+CellularAutomatonSearch[Rule[init_List, targetWidth_Integer], steps_Integer, opts:OptionsPattern[CellularAutomatonSearch]] :=
+    CellularAutomatonSearch[{2, 1}, init -> targetWidth, steps, opts]
 
-CellularAutomatonSearch[pairs:{__Rule}, steps_Integer] :=
-    CellularAutomatonSearch[{2, 1}, pairs, steps]
+CellularAutomatonSearch[pairs:{__Rule}, steps_Integer, opts:OptionsPattern[CellularAutomatonSearch]] :=
+    CellularAutomatonSearch[{2, 1}, pairs, steps, opts]
 
 (* === Legacy positional overloads === *)
 
-CellularAutomatonSearch[init_List, steps_Integer, target_List, {k_Integer, r_Integer}] :=
-    CellularAutomatonSearch[{k, r}, init -> target, steps]
+CellularAutomatonSearch[init_List, steps_Integer, target_List, {k_Integer, r_Integer}, opts:OptionsPattern[CellularAutomatonSearch]] :=
+    CellularAutomatonSearch[{k, r}, init -> target, steps, opts]
 
-CellularAutomatonSearch[init_List, steps_Integer, target_List] :=
-    CellularAutomatonSearch[{2, 1}, init -> target, steps]
+CellularAutomatonSearch[init_List, steps_Integer, target_List, opts:OptionsPattern[CellularAutomatonSearch]] :=
+    CellularAutomatonSearch[{2, 1}, init -> target, steps, opts]
 
-CellularAutomatonSearch[init_List, steps_Integer, target_List, {k_Integer, r_Integer}, minRule_Integer ;; maxRule_Integer] :=
-    CellularAutomatonSearch[{k, r}, init -> target, steps, minRule ;; maxRule]
+CellularAutomatonSearch[init_List, steps_Integer, target_List, {k_Integer, r_Integer}, minRule_Integer ;; maxRule_Integer, opts:OptionsPattern[CellularAutomatonSearch]] :=
+    CellularAutomatonSearch[{k, r}, init -> target, steps, minRule ;; maxRule, opts]
 
 
 (* CellularAutomatonTest: check init -> target for specific rules *)
@@ -498,27 +498,26 @@ caTestSingle[rule_Integer, k_Integer, r_Integer, init_List, target_List, steps_I
         ]
     ]
 
+Options[CellularAutomatonTest] = {Method -> Automatic};
+
 (* Single rulespec {rule, k, r} with init -> target *)
-CellularAutomatonTest[{rule_Integer, k_Integer, r_Integer}, Rule[init_List, target_List], steps_Integer] :=
+CellularAutomatonTest[{rule_Integer, k_Integer, r_Integer}, Rule[init_List, target_List], steps_Integer, OptionsPattern[]] :=
     caTestSingle[rule, k, r, init, target, steps]
 
 (* Elementary shorthand: bare rule number *)
-CellularAutomatonTest[rule_Integer, Rule[init_List, target_List], steps_Integer] :=
+CellularAutomatonTest[rule_Integer, Rule[init_List, target_List], steps_Integer, OptionsPattern[]] :=
     CellularAutomatonTest[{rule, 2, 1}, init -> target, steps]
 
 (* List of rulespecs {{r1, k1, s1}, ...} — filter to passing specs *)
-CellularAutomatonTest[specs : {{_Integer, _Integer, _Integer} ..}, Rule[init_List, target_List], steps_Integer] :=
+CellularAutomatonTest[specs : {{_Integer, _Integer, _Integer} ..}, Rule[init_List, target_List], steps_Integer, OptionsPattern[]] :=
     Select[specs, CellularAutomatonTest[#, init -> target, steps] &]
 
 (* Empty candidate list — short-circuit *)
-CellularAutomatonTest[{}, Rule[_List, _List], _Integer, {_Integer, _Integer}] := {}
-
-Options[CellularAutomatonTest] = {Method -> Automatic};
+CellularAutomatonTest[{}, Rule[_List, _List], _Integer, {_Integer, _Integer}, OptionsPattern[]] := {}
 
 (* Native path: batch test *)
-CellularAutomatonTest[rules : {__Integer}, Rule[init_List, target_List], steps_Integer, {k_Integer, r_Integer},
-        opts:OptionsPattern[CellularAutomatonTest]] /;
-        OptionValue[CellularAutomatonTest, {opts}, Method] === "Native" :=
+CellularAutomatonTest[rules : {__Integer}, Rule[init_List, target_List], steps_Integer, {k_Integer, r_Integer}, OptionsPattern[]] /;
+    OptionValue[Method] === "Native" :=
     With[{padWidth = Max[Length[init], Length[target]] + 2 * steps + 2},
         With[{paddedInit = padCenter[init, padWidth, k],
               paddedTarget = padCenter[target, padWidth, k]},
@@ -527,7 +526,7 @@ CellularAutomatonTest[rules : {__Integer}, Rule[init_List, target_List], steps_I
     ]
 
 (* List of rule numbers with explicit {k, r} — GPU-parallel filter *)
-CellularAutomatonTest[rules : {__Integer}, Rule[init_List, target_List], steps_Integer, {k_Integer, r_Integer}] /;
+CellularAutomatonTest[rules : {__Integer}, Rule[init_List, target_List], steps_Integer, {k_Integer, r_Integer}, OptionsPattern[]] /;
         Max[rules] <= $MaxRustRuleNumber :=
     With[{padWidth = Max[Length[init], Length[target]] + 2 * steps + 2},
         With[{paddedInit = padCenter[init, padWidth, k],
@@ -537,7 +536,7 @@ CellularAutomatonTest[rules : {__Integer}, Rule[init_List, target_List], steps_I
     ]
 
 (* BigInt path: pass rule numbers as strings to Rust *)
-CellularAutomatonTest[rules : {__Integer}, Rule[init_List, target_List], steps_Integer, {k_Integer, r_Integer}] :=
+CellularAutomatonTest[rules : {__Integer}, Rule[init_List, target_List], steps_Integer, {k_Integer, r_Integer}, OptionsPattern[]] :=
     With[{padWidth = Max[Length[init], Length[target]] + 2 * steps + 2},
         With[{paddedInit = padCenter[init, padWidth, k],
               paddedTarget = padCenter[target, padWidth, k]},
@@ -548,31 +547,31 @@ CellularAutomatonTest[rules : {__Integer}, Rule[init_List, target_List], steps_I
     ]
 
 (* List of rule numbers, elementary default *)
-CellularAutomatonTest[rules : {__Integer}, Rule[init_List, target_List], steps_Integer] :=
-    CellularAutomatonTest[rules, init -> target, steps, {2, 1}]
+CellularAutomatonTest[rules : {__Integer}, Rule[init_List, target_List], steps_Integer, opts:OptionsPattern[]] :=
+    CellularAutomatonTest[rules, init -> target, steps, {2, 1}, opts]
 
 
 (* Legacy width-target overloads *)
 
-CellularAutomatonSearch[init_List, steps_Integer, targetWidth_Integer, {k_Integer, r_Integer}] :=
-    CellularAutomatonSearch[{k, r}, init -> targetWidth, steps]
+CellularAutomatonSearch[init_List, steps_Integer, targetWidth_Integer, {k_Integer, r_Integer}, opts:OptionsPattern[CellularAutomatonSearch]] :=
+    CellularAutomatonSearch[{k, r}, init -> targetWidth, steps, opts]
 
-CellularAutomatonSearch[init_List, steps_Integer, targetWidth_Integer] :=
-    CellularAutomatonSearch[{2, 1}, init -> targetWidth, steps]
+CellularAutomatonSearch[init_List, steps_Integer, targetWidth_Integer, opts:OptionsPattern[CellularAutomatonSearch]] :=
+    CellularAutomatonSearch[{2, 1}, init -> targetWidth, steps, opts]
 
-CellularAutomatonSearch[init_List, steps_Integer, targetWidth_Integer, {k_Integer, r_Integer}, minRule_Integer ;; maxRule_Integer] :=
-    CellularAutomatonSearch[{k, r}, init -> targetWidth, steps, minRule ;; maxRule]
+CellularAutomatonSearch[init_List, steps_Integer, targetWidth_Integer, {k_Integer, r_Integer}, minRule_Integer ;; maxRule_Integer, opts:OptionsPattern[CellularAutomatonSearch]] :=
+    CellularAutomatonSearch[{k, r}, init -> targetWidth, steps, minRule ;; maxRule, opts]
 
 CellularAutomatonSearch[inits:{__List}, steps_Integer, targetWidth_Integer, {k_Integer, r_Integer},
-        minRule_Integer ;; maxRule_Integer] :=
+        minRule_Integer ;; maxRule_Integer, OptionsPattern[]] :=
     With[{flat = Flatten[inits], n = Length[inits]},
         fromDS @ FindExactWidthRulesRust[minRule, maxRule, k, r,
             toDS[flat], n, steps, targetWidth]
     ]
 
-CellularAutomatonSearch[inits:{__List}, steps_Integer, targetWidth_Integer, {k_Integer, r_Integer}] :=
+CellularAutomatonSearch[inits:{__List}, steps_Integer, targetWidth_Integer, {k_Integer, r_Integer}, opts:OptionsPattern[CellularAutomatonSearch]] :=
     CellularAutomatonSearch[inits, steps, targetWidth, {k, r},
-        0 ;; CellularAutomatonRuleCount[k, r] - 1]
+        0 ;; CellularAutomatonRuleCount[k, r] - 1, opts]
 
 
 (* CellularAutomatonOutputTable: output for all rules *)
@@ -689,7 +688,7 @@ isNKSDoublerPattern[init_List] := init === Append[ConstantArray[1, Length[init] 
 (* Specialized fast path: ratio=2, k=3, r=1 with NKS-standard patterns *)
 CellularAutomatonWidthRatioSearch[inits:{__List}, steps_Integer, 2, {3, 1},
     opts:OptionsPattern[CellularAutomatonWidthRatioSearch]] /;
-    OptionValue[CellularAutomatonWidthRatioSearch, {opts}, Method] =!= "Native" && AllTrue[inits, isNKSDoublerPattern] :=
+    OptionValue[Method] =!= "Native" && AllTrue[inits, isNKSDoublerPattern] :=
     With[{maxN = Max[Length /@ inits]},
         With[{gpuCandidates = fromDS @ FindDoublersK3R1Rust[Min[maxN, 12]]},
             If[maxN <= 12,
@@ -703,7 +702,7 @@ CellularAutomatonWidthRatioSearch[inits:{__List}, steps_Integer, 2, {3, 1},
 (* Non-NKS inits, ratio=2, k=3, r=1: use NKS doubler as pre-filter, then verify with actual inits *)
 CellularAutomatonWidthRatioSearch[inits:{__List}, steps_Integer, 2, {3, 1},
     opts:OptionsPattern[CellularAutomatonWidthRatioSearch]] /;
-    OptionValue[CellularAutomatonWidthRatioSearch, {opts}, Method] =!= "Native" :=
+    OptionValue[Method] =!= "Native" :=
     With[{candidates = fromDS @ FindDoublersK3R1Rust[Min[Max[Length /@ inits], 12]]},
         CellularAutomatonWidthRatioSearch[inits, steps, 2, {3, 1}, candidates]
     ]
@@ -711,13 +710,13 @@ CellularAutomatonWidthRatioSearch[inits:{__List}, steps_Integer, 2, {3, 1},
 (* Specialized sieve: ratio=2, k=3, r=1, NKS patterns *)
 CellularAutomatonWidthRatioSearch[inits:{__List}, steps_Integer, 2, {3, 1}, rules_List,
     opts:OptionsPattern[CellularAutomatonWidthRatioSearch]] /;
-    OptionValue[CellularAutomatonWidthRatioSearch, {opts}, Method] =!= "Native" && AllTrue[inits, isNKSDoublerPattern] :=
+    OptionValue[Method] =!= "Native" && AllTrue[inits, isNKSDoublerPattern] :=
     fromDS @ FilterDoublersK3R1RangeRust[toDS[rules], 1, Max[Length /@ inits]]
 
 (* Specialized sieve: ratio=2, k=3, r=1, non-NKS patterns — use general filter *)
 CellularAutomatonWidthRatioSearch[inits:{__List}, steps_Integer, 2, {3, 1}, rules_List,
     opts:OptionsPattern[CellularAutomatonWidthRatioSearch]] /;
-    OptionValue[CellularAutomatonWidthRatioSearch, {opts}, Method] =!= "Native" :=
+    OptionValue[Method] =!= "Native" :=
     With[{flat = Flatten[inits], n = Length[inits]},
         fromDS @ FilterWidthRatioRulesRust[toDS[rules], 3, 1, toDS[flat], n, steps,
             2, 1, Max[Length /@ inits]]
