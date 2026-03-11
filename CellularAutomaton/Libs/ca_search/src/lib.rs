@@ -1,4 +1,4 @@
-use wolfram_library_link as wll;
+use wolfram_library_link::{self as wll, NumericArray, UninitNumericArray};
 
 wll::generate_loader!(rustlink_autodiscover);
 
@@ -446,19 +446,44 @@ pub fn find_exact_width_rules(
 // Wolfram LibraryLink wrappers
 // =============================================================================
 
-/// Run a CA evolution and return the flat spacetime grid as a list of integers.
-/// Width is passed so WL can reshape: Partition[result, width].
+/// Helper: extract u8 cells from a NumericArray<i32>.
+#[inline]
+fn na_to_cells(na: &NumericArray<i32>) -> Vec<u8> {
+    na.as_slice().iter().map(|&c| c as u8).collect()
+}
+
+/// Helper: create a NumericArray<i64> from a Vec<u64>.
+#[inline]
+fn vec_u64_to_na(v: Vec<u64>) -> NumericArray<i64> {
+    let mut out = UninitNumericArray::<i64>::from_dimensions(&[v.len()]);
+    for (src, dst) in v.iter().zip(out.as_slice_mut()) {
+        dst.write(*src as i64);
+    }
+    unsafe { out.assume_init() }
+}
+
+/// Helper: create a NumericArray<i32> from a Vec<u8>.
+#[inline]
+fn vec_u8_to_na_i32(v: Vec<u8>) -> NumericArray<i32> {
+    let mut out = UninitNumericArray::<i32>::from_dimensions(&[v.len()]);
+    for (src, dst) in v.iter().zip(out.as_slice_mut()) {
+        dst.write(*src as i32);
+    }
+    unsafe { out.assume_init() }
+}
+
+/// Run a CA evolution and return the flat spacetime grid.
 #[wll::export]
 pub fn run_ca_wl(
     rule_number: u64,
     k: u32,
     r: u32,
-    initial_cells: Vec<i32>,
+    initial_cells: &NumericArray<i32>,
     steps: u64,
-) -> Vec<i32> {
-    let cells: Vec<u8> = initial_cells.iter().map(|&c| c as u8).collect();
+) -> NumericArray<i32> {
+    let cells = na_to_cells(initial_cells);
     let result = run_ca(rule_number, k, r, &cells, steps as usize);
-    result.into_iter().map(|c| c as i32).collect()
+    vec_u8_to_na_i32(result)
 }
 
 /// Run a CA and return just the final state.
@@ -467,46 +492,42 @@ pub fn run_ca_final_wl(
     rule_number: u64,
     k: u32,
     r: u32,
-    initial_cells: Vec<i32>,
+    initial_cells: &NumericArray<i32>,
     steps: u64,
-) -> Vec<i32> {
-    let cells: Vec<u8> = initial_cells.iter().map(|&c| c as u8).collect();
+) -> NumericArray<i32> {
+    let cells = na_to_cells(initial_cells);
     let result = run_ca_final(rule_number, k, r, &cells, steps as usize);
-    result.into_iter().map(|c| c as i32).collect()
+    vec_u8_to_na_i32(result)
 }
 
 /// Compute output table across a range of rules (parallelized).
-/// Returns a flat list of output integers (one per rule).
 #[wll::export]
 pub fn ca_output_table_parallel_wl(
     min_rule: u64,
     max_rule: u64,
     k: u32,
     r: u32,
-    initial_cells: Vec<i32>,
+    initial_cells: &NumericArray<i32>,
     steps: u64,
-) -> Vec<u64> {
-    let cells: Vec<u8> = initial_cells.iter().map(|&c| c as u8).collect();
-    ca_output_table_parallel(min_rule, max_rule, k, r, &cells, steps as usize)
+) -> NumericArray<i64> {
+    let cells = na_to_cells(initial_cells);
+    vec_u64_to_na(ca_output_table_parallel(min_rule, max_rule, k, r, &cells, steps as usize))
 }
 
-
-
 /// Search for matching rules (parallelized).
-/// Returns a list of rule numbers whose final state matches the target.
 #[wll::export]
 pub fn find_matching_rules_wl(
     min_rule: u64,
     max_rule: u64,
     k: u32,
     r: u32,
-    initial_cells: Vec<i32>,
+    initial_cells: &NumericArray<i32>,
     steps: u64,
-    target_cells: Vec<i32>,
-) -> Vec<u64> {
-    let cells: Vec<u8> = initial_cells.iter().map(|&c| c as u8).collect();
-    let target: Vec<u8> = target_cells.iter().map(|&c| c as u8).collect();
-    find_matching_rules(min_rule, max_rule, k, r, &cells, steps as usize, &target)
+    target_cells: &NumericArray<i32>,
+) -> NumericArray<i64> {
+    let cells = na_to_cells(initial_cells);
+    let target = na_to_cells(target_cells);
+    vec_u64_to_na(find_matching_rules(min_rule, max_rule, k, r, &cells, steps as usize, &target))
 }
 
 /// Compute the total number of rules for given k and r.
@@ -525,12 +546,13 @@ pub fn ca_evolution_table_parallel_wl(
     max_rule: u64,
     k: u32,
     r: u32,
-    initial_cells: Vec<i32>,
+    initial_cells: &NumericArray<i32>,
     steps: u64,
-) -> Vec<i32> {
-    let cells: Vec<u8> = initial_cells.iter().map(|&c| c as u8).collect();
+) -> NumericArray<i32> {
+    let cells = na_to_cells(initial_cells);
     let table = ca_evolution_table_parallel(min_rule, max_rule, k, r, &cells, steps as usize);
-    table.into_iter().flatten().map(|c| c as i32).collect()
+    let flat: Vec<u8> = table.into_iter().flatten().collect();
+    vec_u8_to_na_i32(flat)
 }
 
 /// Find rules with bounded active width (parallelized).
@@ -541,28 +563,27 @@ pub fn find_bounded_width_rules_wl(
     max_rule: u64,
     k: u32,
     r: u32,
-    initial_cells: Vec<i32>,
+    initial_cells: &NumericArray<i32>,
     steps: u64,
     max_width: u64,
-) -> Vec<u64> {
-    let cells: Vec<u8> = initial_cells.iter().map(|&c| c as u8).collect();
-    find_bounded_width_rules(min_rule, max_rule, k, r, &cells, steps as usize, max_width as usize)
+) -> NumericArray<i64> {
+    let cells = na_to_cells(initial_cells);
+    vec_u64_to_na(find_bounded_width_rules(min_rule, max_rule, k, r, &cells, steps as usize, max_width as usize))
 }
 
 /// Compute max active widths for a range of rules (parallelized).
 /// Returns flat list: [max0, final0, max1, final1, ...].
-/// WL side can Partition[result, 2].
 #[wll::export]
 pub fn max_active_widths_parallel_wl(
     min_rule: u64,
     max_rule: u64,
     k: u32,
     r: u32,
-    initial_cells: Vec<i32>,
+    initial_cells: &NumericArray<i32>,
     steps: u64,
-) -> Vec<u64> {
-    let cells: Vec<u8> = initial_cells.iter().map(|&c| c as u8).collect();
-    max_active_widths_parallel(min_rule, max_rule, k, r, &cells, steps as usize)
+) -> NumericArray<i64> {
+    let cells = na_to_cells(initial_cells);
+    vec_u64_to_na(max_active_widths_parallel(min_rule, max_rule, k, r, &cells, steps as usize))
 }
 
 /// Find rules whose final active width = (ratio_num/ratio_den) * input width
@@ -576,55 +597,55 @@ pub fn find_width_ratio_rules_wl(
     max_rule: u64,
     k: u32,
     r: u32,
-    flat_inits: Vec<i32>,
+    flat_inits: &NumericArray<i32>,
     num_inits: u64,
     steps: u64,
     ratio_num: u64,
     ratio_den: u64,
     max_width: u64,
-) -> Vec<u64> {
+) -> NumericArray<i64> {
     let num = num_inits as usize;
-    let tape_width = flat_inits.len() / num;
-    let initials: Vec<CAState> = flat_inits
+    let sl = flat_inits.as_slice();
+    let tape_width = sl.len() / num;
+    let initials: Vec<CAState> = sl
         .chunks(tape_width)
         .map(|chunk| {
             let cells: Vec<u8> = chunk.iter().map(|&c| c as u8).collect();
             CAState::new(cells, k)
         })
         .collect();
-    find_width_ratio_rules(
+    vec_u64_to_na(find_width_ratio_rules(
         min_rule, max_rule, k, r, &initials, steps as usize,
         ratio_num, ratio_den, max_width as usize,
-    )
+    ))
 }
 
 /// Find rules where the final active width = target_width for ALL inits.
-/// `flat_inits` is a flat list of all initial conditions concatenated.
-/// `num_inits` tells how many are packed.
 #[wll::export]
 pub fn find_exact_width_rules_wl(
     min_rule: u64,
     max_rule: u64,
     k: u32,
     r: u32,
-    flat_inits: Vec<i32>,
+    flat_inits: &NumericArray<i32>,
     num_inits: u64,
     steps: u64,
     target_width: u64,
-) -> Vec<u64> {
+) -> NumericArray<i64> {
     let num = num_inits as usize;
-    let tape_width = flat_inits.len() / num;
-    let initials: Vec<CAState> = flat_inits
+    let sl = flat_inits.as_slice();
+    let tape_width = sl.len() / num;
+    let initials: Vec<CAState> = sl
         .chunks(tape_width)
         .map(|chunk| {
             let cells: Vec<u8> = chunk.iter().map(|&c| c as u8).collect();
             CAState::new(cells, k)
         })
         .collect();
-    find_exact_width_rules(
+    vec_u64_to_na(find_exact_width_rules(
         min_rule, max_rule, k, r, &initials, steps as usize,
         target_width as usize,
-    )
+    ))
 }
 
 /// Sequential-scan doubler check (matches NKS doubleasymmi.c algorithm).
@@ -699,8 +720,8 @@ pub fn find_doublers_k3r1(num_tests: u32) -> Vec<u64> {
 
 /// WLL wrapper for find_doublers_k3r1.
 #[wll::export]
-pub fn find_doublers_k3r1_wl(num_tests: u64) -> Vec<u64> {
-    find_doublers_k3r1(num_tests as u32)
+pub fn find_doublers_k3r1_wl(num_tests: u64) -> NumericArray<i64> {
+    vec_u64_to_na(find_doublers_k3r1(num_tests as u32))
 }
 
 /// Filter candidate rules using NKS sequential-scan doubler check.
@@ -769,9 +790,9 @@ pub fn filter_doublers_k3r1_wl(candidate_rules: Vec<i64>, num_tests: u64) -> Vec
 
 /// WLL wrapper for filter_doublers_k3r1_range.
 #[wll::export]
-pub fn filter_doublers_k3r1_range_wl(candidate_rules: Vec<i64>, start_test: u64, end_test: u64) -> Vec<u64> {
-    let candidates: Vec<u64> = candidate_rules.iter().map(|&r| r as u64).collect();
-    filter_doublers_k3r1_range(&candidates, start_test as u32, end_test as u32)
+pub fn filter_doublers_k3r1_range_wl(candidate_rules: &NumericArray<i64>, start_test: u64, end_test: u64) -> NumericArray<i64> {
+    let candidates: Vec<u64> = candidate_rules.as_slice().iter().map(|&r| r as u64).collect();
+    vec_u64_to_na(filter_doublers_k3r1_range(&candidates, start_test as u32, end_test as u32))
 }
 
 /// Test a list of candidate rules: which ones produce target from init after steps?
@@ -807,21 +828,19 @@ pub fn test_rules(
 /// WLL wrapper for test_rules.
 #[wll::export]
 pub fn test_rules_wl(
-    candidate_rules: Vec<i64>,
+    candidate_rules: &NumericArray<i64>,
     k: u32,
     r: u32,
-    init: Vec<i32>,
+    init: &NumericArray<i32>,
     steps: u64,
-    target: Vec<i32>,
-) -> Vec<i32> {
-    let candidates: Vec<u64> = candidate_rules.iter().map(|&r| r as u64).collect();
-    let init_cells: Vec<u8> = init.iter().map(|&c| c as u8).collect();
-    let target_cells: Vec<u8> = target.iter().map(|&c| c as u8).collect();
+    target: &NumericArray<i32>,
+) -> NumericArray<i32> {
+    let candidates: Vec<u64> = candidate_rules.as_slice().iter().map(|&r| r as u64).collect();
+    let init_cells = na_to_cells(init);
+    let target_cells = na_to_cells(target);
     let initial = CAState::new(init_cells, k);
-    test_rules(&candidates, k, r, &initial, steps as usize, &target_cells)
-        .into_iter()
-        .map(|v| v as i32)
-        .collect()
+    let results = test_rules(&candidates, k, r, &initial, steps as usize, &target_cells);
+    vec_u8_to_na_i32(results)
 }
 
 /// Filter a list of candidate rules by width ratio.
@@ -859,30 +878,31 @@ pub fn filter_width_ratio_rules(
 /// WLL wrapper for filter_width_ratio_rules.
 #[wll::export]
 pub fn filter_width_ratio_rules_wl(
-    candidate_rules: Vec<i64>,
+    candidate_rules: &NumericArray<i64>,
     k: u32,
     r: u32,
-    flat_inits: Vec<i32>,
+    flat_inits: &NumericArray<i32>,
     num_inits: u64,
     steps: u64,
     ratio_num: u64,
     ratio_den: u64,
     max_width: u64,
-) -> Vec<u64> {
-    let candidates: Vec<u64> = candidate_rules.iter().map(|&r| r as u64).collect();
+) -> NumericArray<i64> {
+    let candidates: Vec<u64> = candidate_rules.as_slice().iter().map(|&r| r as u64).collect();
     let num = num_inits as usize;
-    let tape_width = flat_inits.len() / num;
-    let initials: Vec<CAState> = flat_inits
+    let sl = flat_inits.as_slice();
+    let tape_width = sl.len() / num;
+    let initials: Vec<CAState> = sl
         .chunks(tape_width)
         .map(|chunk| {
             let cells: Vec<u8> = chunk.iter().map(|&c| c as u8).collect();
             CAState::new(cells, k)
         })
         .collect();
-    filter_width_ratio_rules(
+    vec_u64_to_na(filter_width_ratio_rules(
         &candidates, k, r, &initials, steps as usize,
         ratio_num, ratio_den, max_width as usize,
-    )
+    ))
 }
 
 
@@ -968,19 +988,20 @@ pub fn run_ca_bigint_wl(
     rule_number_str: String,
     k: u32,
     r: u32,
-    initial_cells: Vec<i32>,
+    initial_cells: &NumericArray<i32>,
     steps: u64,
-) -> Vec<i32> {
+) -> NumericArray<i32> {
     use num_bigint::BigUint;
     let rule_number: BigUint = match rule_number_str.parse::<BigUint>() {
         Ok(v) => v,
-        Err(_) => return Vec::new(),
+        Err(_) => return vec_u8_to_na_i32(Vec::new()),
     };
-    let cells: Vec<u8> = initial_cells.iter().map(|&c| c as u8).collect();
+    let cells = na_to_cells(initial_cells);
     let ca = CellularAutomaton::from_rule_number_bigint(&rule_number, k, r);
     let initial = CAState::new(cells, k);
     let history = ca.evolve(&initial, steps as usize);
-    history.into_iter().flat_map(|s| s.cells).map(|c| c as i32).collect()
+    let flat: Vec<u8> = history.into_iter().flat_map(|s| s.cells).collect();
+    vec_u8_to_na_i32(flat)
 }
 
 /// Run a CA with a BigInt rule number (passed as string) and return just the final state.
@@ -989,19 +1010,19 @@ pub fn run_ca_final_bigint_wl(
     rule_number_str: String,
     k: u32,
     r: u32,
-    initial_cells: Vec<i32>,
+    initial_cells: &NumericArray<i32>,
     steps: u64,
-) -> Vec<i32> {
+) -> NumericArray<i32> {
     use num_bigint::BigUint;
     let rule_number: BigUint = match rule_number_str.parse::<BigUint>() {
         Ok(v) => v,
-        Err(_) => return Vec::new(),
+        Err(_) => return vec_u8_to_na_i32(Vec::new()),
     };
-    let cells: Vec<u8> = initial_cells.iter().map(|&c| c as u8).collect();
+    let cells = na_to_cells(initial_cells);
     let ca = CellularAutomaton::from_rule_number_bigint(&rule_number, k, r);
     let initial = CAState::new(cells, k);
     let final_state = ca.evolve_final(&initial, steps as usize);
-    final_state.cells.iter().map(|&c| c as i32).collect()
+    vec_u8_to_na_i32(final_state.cells)
 }
 
 /// Test a batch of BigInt candidate rules (passed as strings) against init/target.
@@ -1011,30 +1032,31 @@ pub fn test_rules_bigint_wl(
     candidate_rule_strs: Vec<String>,
     k: u32,
     r: u32,
-    init: Vec<i32>,
+    init: &NumericArray<i32>,
     steps: u64,
-    target: Vec<i32>,
-) -> Vec<i32> {
+    target: &NumericArray<i32>,
+) -> NumericArray<i32> {
     use num_bigint::BigUint;
     use rayon::prelude::*;
 
-    let init_cells: Vec<u8> = init.iter().map(|&c| c as u8).collect();
-    let target_cells: Vec<u8> = target.iter().map(|&c| c as u8).collect();
+    let init_cells = na_to_cells(init);
+    let target_cells = na_to_cells(target);
     let initial = CAState::new(init_cells, k);
 
-    candidate_rule_strs
+    let results: Vec<u8> = candidate_rule_strs
         .par_iter()
         .map(|rule_str| {
-            if wll::aborted() { return 0; }
+            if wll::aborted() { return 0u8; }
             let rule_number: BigUint = match rule_str.parse::<BigUint>() {
                 Ok(v) => v,
-                Err(_) => return 0,
+                Err(_) => return 0u8,
             };
             let ca = CellularAutomaton::from_rule_number_bigint(&rule_number, k, r);
             let final_state = ca.evolve_final(&initial, steps as usize);
-            if final_state.cells == target_cells { 1 } else { 0 }
+            if final_state.cells == target_cells { 1u8 } else { 0u8 }
         })
-        .collect()
+        .collect();
+    vec_u8_to_na_i32(results)
 }
 
 /// Generate n random CA rules for given k, r directly as lookup tables,
@@ -1046,12 +1068,12 @@ pub fn random_search_wl(
     seed: u64,
     k: u32,
     r: u32,
-    init: Vec<i32>,
+    init: &NumericArray<i32>,
     steps: u64,
-    target: Vec<i32>,
+    target: &NumericArray<i32>,
 ) -> Vec<String> {
-    let init_cells: Vec<u8> = init.iter().map(|&c| c as u8).collect();
-    let target_cells: Vec<u8> = target.iter().map(|&c| c as u8).collect();
+    let init_cells = na_to_cells(init);
+    let target_cells = na_to_cells(target);
     let initial = CAState::new(init_cells.clone(), k);
     let target_state = CAState::new(target_cells.clone(), k);
 
@@ -1198,34 +1220,37 @@ pub fn random_sieve_wl(
 /// num_pairs: number of init→target pairs
 #[wll::export]
 pub fn search_free_wl(
-    fixed_digits_flat: Vec<i32>,
-    free_positions: Vec<i32>,
+    fixed_digits_flat: &NumericArray<i32>,
+    free_positions: &NumericArray<i32>,
     k: u32,
     r: u32,
-    init_cells_flat: Vec<i32>,
-    target_cells_flat: Vec<i32>,
+    init_cells_flat: &NumericArray<i32>,
+    target_cells_flat: &NumericArray<i32>,
     tape_width: u64,
     steps: u64,
     num_pairs: u64,
-) -> Vec<u64> {
-    let fixed_digits: Vec<(u8, u8)> = fixed_digits_flat
+) -> NumericArray<i64> {
+    let fd_sl = fixed_digits_flat.as_slice();
+    let fixed_digits: Vec<(u8, u8)> = fd_sl
         .chunks(2)
         .map(|c| (c[0] as u8, c[1] as u8))
         .collect();
-    let free_pos: Vec<u8> = free_positions.iter().map(|&p| p as u8).collect();
+    let free_pos: Vec<u8> = free_positions.as_slice().iter().map(|&p| p as u8).collect();
 
     let tw = tape_width as usize;
     let np = num_pairs as usize;
+    let init_sl = init_cells_flat.as_slice();
+    let target_sl = target_cells_flat.as_slice();
     let mut pairs: Vec<(CAState, CAState)> = Vec::new();
     for i in 0..np {
-        let init_cells: Vec<u8> = init_cells_flat[i * tw..(i + 1) * tw].iter().map(|&c| c as u8).collect();
-        let target_cells: Vec<u8> = target_cells_flat[i * tw..(i + 1) * tw].iter().map(|&c| c as u8).collect();
+        let init_cells: Vec<u8> = init_sl[i * tw..(i + 1) * tw].iter().map(|&c| c as u8).collect();
+        let target_cells: Vec<u8> = target_sl[i * tw..(i + 1) * tw].iter().map(|&c| c as u8).collect();
         pairs.push((CAState::new(init_cells, k), CAState::new(target_cells, k)));
     }
 
     #[cfg(all(target_os = "macos", feature = "gpu"))]
     if let Some(results) = gpu::try_search_free(k, r, &fixed_digits, &free_pos, &pairs, steps as usize) {
-        return results;
+        return vec_u64_to_na(results);
     }
 
     // CPU fallback: exhaustive search over free-digit space
@@ -1234,7 +1259,7 @@ pub fn search_free_wl(
     let num_free = free_pos.len();
     let total: u64 = (k as u64).pow(num_free as u32);
 
-    (0..total)
+    let results: Vec<u64> = (0..total)
         .into_par_iter()
         .filter_map(|idx| {
             if wll::aborted() { return None; }
@@ -1263,5 +1288,6 @@ pub fn search_free_wl(
             }
             Some(rule_num)
         })
-        .collect()
+        .collect();
+    vec_u64_to_na(results)
 }
