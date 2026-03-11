@@ -189,3 +189,83 @@ testQ["BigInt: k=4 seed search",
 testQ["BigInt: k=4 multi-pair sieve",
     ListQ[CellularAutomatonSearch[{42 -> 100, 4, 1},
         Table[Append[ConstantArray[1,n],2] -> ConstantArray[1,2(n+1)], {n, 0, 2}], 100]]];
+
+print[""];
+print["--- Rulespec / Span / List patterns ---"];
+
+With[{init = {0,0,0,1,0,0,0},
+      out30 = CellularAutomatonOutput[30, 2, 1, {0,0,0,1,0,0,0}, 1]},
+
+    (* Output: {rule,k,r} rulespec *)
+    test["Output: {rule,k,r} rulespec",
+        CellularAutomatonOutput[{30, 2, 1}, init, 1], out30];
+    (* Output: {k,r} + rule *)
+    test["Output: {k,r} + rule",
+        CellularAutomatonOutput[{2, 1}, init, 1, 30], out30];
+    (* Output: {k,r} + span *)
+    test["Output: {k,r} + span length",
+        Length[CellularAutomatonOutput[{2, 1}, init, 1, 28 ;; 30]], 3];
+    test["Output: {k,r} + span last = rule 30",
+        Last[CellularAutomatonOutput[{2, 1}, init, 1, 28 ;; 30]], out30];
+    (* Output: {k,r} + list *)
+    test["Output: {k,r} + list",
+        CellularAutomatonOutput[{2, 1}, init, 1, {30}], {out30}];
+
+    (* Evolution: {rule,k,r} rulespec *)
+    test["Evolution: {rule,k,r} rulespec dims",
+        Dimensions[CellularAutomatonEvolution[{30, 2, 1}, init, 2]], {3, 7}];
+    test["Evolution: {rule,k,r} last row",
+        Last[CellularAutomatonEvolution[{30, 2, 1}, init, 1]], out30];
+    (* Evolution: {k,r} + rule *)
+    test["Evolution: {k,r} + rule dims",
+        Dimensions[CellularAutomatonEvolution[{2, 1}, init, 2, 30]], {3, 7}];
+    (* Evolution: {k,r} + list *)
+    test["Evolution: {k,r} + list length",
+        Length[CellularAutomatonEvolution[{2, 1}, init, 2, {30, 90}]], 2];
+
+    (* Search: list of rules *)
+    test["Search: {k,r} + rules list",
+        CellularAutomatonSearch[{2, 1}, init -> out30, 1, {28, 29, 30, 31}], {30}];
+    (* Search: span *)
+    testQ["Search: {k,r} + span finds rule 30",
+        MemberQ[CellularAutomatonSearch[{2, 1}, init -> out30, 1, 28 ;; 32], 30]];
+
+    (* Test: span *)
+    test["Test: span filters",
+        CellularAutomatonTest[28 ;; 32, init -> out30, 1], {30}];
+    test["Test: span with {k,r}",
+        CellularAutomatonTest[28 ;; 32, init -> out30, 1, {2, 1}], {30}];
+
+    (* OutputTable: list *)
+    test["OutputTable: {k,r} + list",
+        CellularAutomatonOutputTable[2, 1, init, 1, {30}], {out30}];
+    test["OutputTable: {k,r} + list length",
+        Length[CellularAutomatonOutputTable[2, 1, init, 1, {28, 29, 30}]], 3];
+];
+
+(* BoundedWidth: list *)
+With[{bw = CellularAutomatonBoundedWidthSearch[CenterArray[{1}, 21], 20, 5, {2, 1}, {0, 1, 30, 204}]},
+    testQ["BoundedWidth: list includes rule 0", MemberQ[bw, 0]];
+    testQ["BoundedWidth: list excludes rule 30", !MemberQ[bw, 30]];
+];
+
+(* ActiveWidths: list *)
+With[{aw = CellularAutomatonActiveWidths[2, 1, CenterArray[{1}, 11], 5, {0, 30, 204}]},
+    test["ActiveWidths: list length", Length[aw], 3];
+    test["ActiveWidths: list shape", Length[aw[[1]]], 2];
+    testQ["ActiveWidths: rule 30 wider than rule 0", aw[[2, 1]] > aw[[1, 1]]];
+];
+
+(* WidthRatio: span *)
+testQ["WidthRatio: span search",
+    ListQ[CellularAutomatonWidthRatioSearch[{CenterArray[{1}, 41]}, 10, 2, {3, 1}, 54230 ;; 54250, 15]]];
+
+(* k=3 rulespec patterns *)
+With[{kinit = Join[ConstantArray[0,5], {1,2,0}, ConstantArray[0,5]]},
+    test["Output: k=3 {rule,k,r}",
+        CellularAutomatonOutput[{123456, 3, 1}, kinit, 1],
+        CellularAutomatonOutput[123456, 3, 1, kinit, 1]];
+    test["Evolution: k=3 {rule,k,r} dims",
+        Dimensions[CellularAutomatonEvolution[{123456, 3, 1}, kinit, 3]],
+        {4, Length[kinit]}];
+];
