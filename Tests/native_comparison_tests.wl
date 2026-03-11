@@ -37,8 +37,11 @@ runTest[name_String, expr_, expected_] := (
     ]
 )
 
-(* Compare Rust vs Native results *)
-compareResults[name_String, rustResult_, nativeResult_] := (
+(* Compare Rust vs Native results and print timings *)
+SetAttributes[timeCompare, HoldRest];
+timeCompare[name_String, rustExpr_, nativeExpr_] := Module[{rustResult, nativeResult, tRust, tNative},
+    {tRust, rustResult} = AbsoluteTiming[rustExpr];
+    {tNative, nativeResult} = AbsoluteTiming[nativeExpr];
     $testCount++;
     If[rustResult === nativeResult,
         $passCount++;
@@ -49,19 +52,9 @@ compareResults[name_String, rustResult_, nativeResult_] := (
         print["  \[Times] ", name];
         print["    Rust:   ", Short[rustResult, 2]];
         print["    Native: ", Short[nativeResult, 2]];
-    ]
-)
-
-(* Time and compare *)
-timeCompare[name_String, expr_] := Module[{rustResult, nativeResult, tRust, tNative},
-    $CAMethod = "Rust";
-    {tRust, rustResult} = AbsoluteTiming[expr];
-    $CAMethod = "Native";
-    {tNative, nativeResult} = AbsoluteTiming[expr];
-    $CAMethod = "Rust"; (* restore default *)
-    compareResults[name, rustResult, nativeResult];
-    print["    Rust: ", NumberForm[tRust, 4], "s  |  Native: ", NumberForm[tNative, 4], "s  |  Speedup: ",
-        If[tNative > 0, NumberForm[tNative / tRust, 3], "\[Infinity]"], "x"];
+    ];
+    print["    Rust: ", NumberForm[tRust, 4], "s  |  Native: ", NumberForm[tNative, 4], "s  |  ",
+        If[tRust > 0, "Speedup: " <> ToString[NumberForm[tNative / tRust, 3]] <> "x", ""]];
 ]
 
 (* ---- Tests ---- *)
@@ -69,67 +62,78 @@ timeCompare[name_String, expr_] := Module[{rustResult, nativeResult, tRust, tNat
 print["--- CellularAutomatonOutput ---"];
 
 timeCompare["Rule 30, width 7, 1 step",
-    CellularAutomatonOutput[30, 2, 1, {0,0,0,1,0,0,0}, 1]];
+    CellularAutomatonOutput[30, 2, 1, {0,0,0,1,0,0,0}, 1],
+    CellularAutomatonOutput[30, 2, 1, {0,0,0,1,0,0,0}, 1, Method -> "Native"]];
 timeCompare["Rule 30, width 7, 10 steps",
-    CellularAutomatonOutput[30, 2, 1, {0,0,0,1,0,0,0}, 10]];
+    CellularAutomatonOutput[30, 2, 1, {0,0,0,1,0,0,0}, 10],
+    CellularAutomatonOutput[30, 2, 1, {0,0,0,1,0,0,0}, 10, Method -> "Native"]];
 timeCompare["Rule 110, width 21, 20 steps",
-    CellularAutomatonOutput[110, 2, 1, CenterArray[{1}, 21], 20]];
+    CellularAutomatonOutput[110, 2, 1, CenterArray[{1}, 21], 20],
+    CellularAutomatonOutput[110, 2, 1, CenterArray[{1}, 21], 20, Method -> "Native"]];
 timeCompare["k=3 rule, width 23, 5 steps",
-    CellularAutomatonOutput[123456, 3, 1, Join[ConstantArray[0,10], {1,2,0}, ConstantArray[0,10]], 5]];
+    CellularAutomatonOutput[123456, 3, 1, Join[ConstantArray[0,10], {1,2,0}, ConstantArray[0,10]], 5],
+    CellularAutomatonOutput[123456, 3, 1, Join[ConstantArray[0,10], {1,2,0}, ConstantArray[0,10]], 5, Method -> "Native"]];
 
 print[""];
 print["--- CellularAutomatonEvolution ---"];
 
 timeCompare["Rule 30, width 7, 2 steps",
-    CellularAutomatonEvolution[30, 2, 1, {0,0,0,1,0,0,0}, 2]];
+    CellularAutomatonEvolution[30, 2, 1, {0,0,0,1,0,0,0}, 2],
+    CellularAutomatonEvolution[30, 2, 1, {0,0,0,1,0,0,0}, 2, Method -> "Native"]];
 timeCompare["Rule 110, width 21, 20 steps",
-    CellularAutomatonEvolution[110, 2, 1, CenterArray[{1}, 21], 20]];
+    CellularAutomatonEvolution[110, 2, 1, CenterArray[{1}, 21], 20],
+    CellularAutomatonEvolution[110, 2, 1, CenterArray[{1}, 21], 20, Method -> "Native"]];
 
 print[""];
 print["--- CellularAutomatonSearch ---"];
 
-With[{init = {0,0,0,1,0,0,0}},
-With[{target = Last @ CellularAutomaton[30, init, 1]},
+With[{init = {0,0,0,1,0,0,0},
+      target = Last @ CellularAutomaton[30, {0,0,0,1,0,0,0}, 1]},
     timeCompare["Find rules matching rule 30 output",
-        CellularAutomatonSearch[{2, 1}, init -> target, 1]];
-]];
+        CellularAutomatonSearch[{2, 1}, init -> target, 1],
+        CellularAutomatonSearch[{2, 1}, init -> target, 1, Method -> "Native"]];
+];
 
-(* Width target *)
 timeCompare["Width target search (width=3, 2 steps)",
-    CellularAutomatonSearch[{2, 1}, CenterArray[{1}, 11] -> 3, 2]];
+    CellularAutomatonSearch[{2, 1}, CenterArray[{1}, 11] -> 3, 2],
+    CellularAutomatonSearch[{2, 1}, CenterArray[{1}, 11] -> 3, 2, Method -> "Native"]];
 
 print[""];
 print["--- CellularAutomatonOutputTable ---"];
 
 timeCompare["Elementary output table, width 7, 1 step",
-    CellularAutomatonOutputTable[{0,0,0,1,0,0,0}, 1]];
+    CellularAutomatonOutputTable[{0,0,0,1,0,0,0}, 1],
+    CellularAutomatonOutputTable[{0,0,0,1,0,0,0}, 1, Method -> "Native"]];
 
 print[""];
 print["--- CellularAutomatonBoundedWidthSearch ---"];
 
 timeCompare["Bounded width 5, 20 steps",
-    CellularAutomatonBoundedWidthSearch[CenterArray[{1}, 21], 20, 5]];
+    CellularAutomatonBoundedWidthSearch[CenterArray[{1}, 21], 20, 5],
+    CellularAutomatonBoundedWidthSearch[CenterArray[{1}, 21], 20, 5, Method -> "Native"]];
 
 print[""];
 print["--- CellularAutomatonActiveWidths ---"];
 
 timeCompare["Active widths, all elementary rules, 10 steps",
-    CellularAutomatonActiveWidths[CenterArray[{1}, 21], 10]];
+    CellularAutomatonActiveWidths[CenterArray[{1}, 21], 10],
+    CellularAutomatonActiveWidths[CenterArray[{1}, 21], 10, Method -> "Native"]];
 
 print[""];
 print["--- CellularAutomatonWidthRatioSearch ---"];
 
 timeCompare["Width ratio=2 search, small range",
-    CellularAutomatonWidthRatioSearch[{CenterArray[{1}, 41]}, 15, 2, {3, 1}, 54240 ;; 54240, 15]];
+    CellularAutomatonWidthRatioSearch[{CenterArray[{1}, 41]}, 15, 2, {3, 1}, 54240 ;; 54240, 15],
+    CellularAutomatonWidthRatioSearch[{CenterArray[{1}, 41]}, 15, 2, {3, 1}, 54240 ;; 54240, 15, Method -> "Native"]];
 
 (* Sieve test *)
-Module[{candidates},
-    $CAMethod = "Rust";
-    candidates = CellularAutomatonWidthRatioSearch[{CenterArray[{1}, 41]}, 10, 2, {3, 1}, 54230 ;; 54250, 15];
+With[{candidates = CellularAutomatonWidthRatioSearch[{CenterArray[{1}, 41]}, 10, 2, {3, 1}, 54230 ;; 54250, 15]},
     If[Length[candidates] > 0,
         timeCompare["Sieve: filter candidates through 2nd init",
             CellularAutomatonWidthRatioSearch[
-                {CenterArray[{1}, 41], CenterArray[{1, 1}, 41]}, 10, 2, {3, 1}, candidates]];
+                {CenterArray[{1}, 41], CenterArray[{1, 1}, 41]}, 10, 2, {3, 1}, candidates],
+            CellularAutomatonWidthRatioSearch[
+                {CenterArray[{1}, 41], CenterArray[{1, 1}, 41]}, 10, 2, {3, 1}, candidates, Method -> "Native"]];
     ];
 ];
 
@@ -141,7 +145,8 @@ With[{
     target = Last @ CellularAutomaton[30, {0,0,0,1,0,0,0}, 1]
 },
     timeCompare["Batch test 256 rules",
-        CellularAutomatonTest[Range[0, 255], init -> target, 1]];
+        CellularAutomatonTest[Range[0, 255], init -> target, 1],
+        CellularAutomatonTest[Range[0, 255], init -> target, 1, {2, 1}, Method -> "Native"]];
 ];
 
 
