@@ -101,8 +101,15 @@ CellularAutomatonActiveWidths[k, r, init, steps, {r1, r2, ...}]      (* list *)
 ### `CellularAutomatonOutput` / `CellularAutomatonEvolution`
 
 ```wolfram
-CellularAutomatonOutput[rule, k, r, init, steps]       (* final state *)
-CellularAutomatonEvolution[rule, k, r, init, steps]     (* full spacetime *)
+CellularAutomatonOutput[{rule, k, r}, init, steps]                   (* final state *)
+CellularAutomatonOutput[{k, r}, init, steps, rule]                   (* rule separate *)
+CellularAutomatonOutput[{k, r}, init, steps, minRule ;; maxRule]      (* range → list *)
+CellularAutomatonOutput[{k, r}, init, steps, {r1, r2, ...}]          (* list → list *)
+
+CellularAutomatonEvolution[{rule, k, r}, init, steps]                (* spacetime *)
+CellularAutomatonEvolution[{k, r}, init, steps, rule]                (* rule separate *)
+CellularAutomatonEvolution[{k, r}, init, steps, minRule ;; maxRule]   (* range → list *)
+CellularAutomatonEvolution[{k, r}, init, steps, {r1, r2, ...}]       (* list → list *)
 ```
 
 ### `CellularAutomatonRuleCount`

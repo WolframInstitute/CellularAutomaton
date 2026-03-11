@@ -4,12 +4,20 @@ ClearAll["WolframInstitute`CellularAutomaton`*", "WolframInstitute`CellularAutom
 
 CellularAutomatonRuleCount::usage = "CellularAutomatonRuleCount[k, r] returns the total number of distinct cellular automaton rules for k colors and radius r.\nCellularAutomatonRuleCount[k, r] = k^(k^(2r+1))."
 
-CellularAutomatonOutput::usage = "CellularAutomatonOutput[rule, k, r, init, steps] runs a 1D cellular automaton and returns the final state.
+CellularAutomatonOutput::usage = "CellularAutomatonOutput[{rule, k, r}, init, steps] returns the final state of a 1D cellular automaton.
+CellularAutomatonOutput[rule, k, r, init, steps] is equivalent.
 CellularAutomatonOutput[rule, init, steps] uses elementary defaults (k=2, r=1).
+CellularAutomatonOutput[{k, r}, init, steps, rule] specifies the rule separately.
+CellularAutomatonOutput[{k, r}, init, steps, min ;; max] returns outputs for a range of rules.
+CellularAutomatonOutput[{k, r}, init, steps, {r1, r2, \[Ellipsis]}] returns outputs for a list of rules.
 Method \[Rule] \"Native\" uses the built-in CellularAutomaton."
 
-CellularAutomatonEvolution::usage = "CellularAutomatonEvolution[rule, k, r, init, steps] returns the full spacetime evolution as a matrix.
+CellularAutomatonEvolution::usage = "CellularAutomatonEvolution[{rule, k, r}, init, steps] returns the full spacetime evolution as a matrix.
+CellularAutomatonEvolution[rule, k, r, init, steps] is equivalent.
 CellularAutomatonEvolution[rule, init, steps] uses elementary defaults (k=2, r=1).
+CellularAutomatonEvolution[{k, r}, init, steps, rule] specifies the rule separately.
+CellularAutomatonEvolution[{k, r}, init, steps, min ;; max] returns evolutions for a range of rules.
+CellularAutomatonEvolution[{k, r}, init, steps, {r1, r2, \[Ellipsis]}] returns evolutions for a list of rules.
 Method \[Rule] \"Native\" uses the built-in CellularAutomaton."
 
 CellularAutomatonSearch::usage = "CellularAutomatonSearch[{k, r}, init \[Rule] target, steps] finds all rules matching init\[Rule]target.
@@ -286,6 +294,23 @@ CellularAutomatonOutput[rule_Integer, k_Integer, r_Integer, init_List, steps_Int
 CellularAutomatonOutput[rule_Integer, k_Integer, r_Integer, init_List, steps_Integer, OptionsPattern[]] :=
     fromNA @ RunCAFinalBigIntRust[ToString[rule], k, r, toNA32[init], steps]
 
+(* {rule, k, r} rulespec *)
+CellularAutomatonOutput[{rule_Integer, k_Integer, r_Integer}, init_List, steps_Integer, opts:OptionsPattern[]] :=
+    CellularAutomatonOutput[rule, k, r, init, steps, opts]
+
+(* {k, r} with separate rule *)
+CellularAutomatonOutput[{k_Integer, r_Integer}, init_List, steps_Integer, rule_Integer, opts:OptionsPattern[]] :=
+    CellularAutomatonOutput[rule, k, r, init, steps, opts]
+
+(* {k, r} with span: return list of outputs *)
+CellularAutomatonOutput[{k_Integer, r_Integer}, init_List, steps_Integer, minRule_Integer ;; maxRule_Integer, opts:OptionsPattern[]] :=
+    Map[CellularAutomatonOutput[#, k, r, init, steps, opts] &, Range[minRule, maxRule]]
+
+(* {k, r} with list of rules *)
+CellularAutomatonOutput[{k_Integer, r_Integer}, init_List, steps_Integer, rules_List, opts:OptionsPattern[]] :=
+    Map[CellularAutomatonOutput[#, k, r, init, steps, opts] &, rules]
+
+(* Elementary shorthands *)
 CellularAutomatonOutput[rule_Integer, init_List, steps_Integer, opts:OptionsPattern[]] :=
     CellularAutomatonOutput[rule, 2, 1, init, steps, opts]
 
@@ -319,6 +344,23 @@ CellularAutomatonEvolution[rule_Integer, k_Integer, r_Integer, init_List, steps_
         Length[init]
     ]
 
+(* {rule, k, r} rulespec *)
+CellularAutomatonEvolution[{rule_Integer, k_Integer, r_Integer}, init_List, steps_Integer, opts:OptionsPattern[]] :=
+    CellularAutomatonEvolution[rule, k, r, init, steps, opts]
+
+(* {k, r} with separate rule *)
+CellularAutomatonEvolution[{k_Integer, r_Integer}, init_List, steps_Integer, rule_Integer, opts:OptionsPattern[]] :=
+    CellularAutomatonEvolution[rule, k, r, init, steps, opts]
+
+(* {k, r} with span: return list of evolutions *)
+CellularAutomatonEvolution[{k_Integer, r_Integer}, init_List, steps_Integer, minRule_Integer ;; maxRule_Integer, opts:OptionsPattern[]] :=
+    Map[CellularAutomatonEvolution[#, k, r, init, steps, opts] &, Range[minRule, maxRule]]
+
+(* {k, r} with list of rules *)
+CellularAutomatonEvolution[{k_Integer, r_Integer}, init_List, steps_Integer, rules_List, opts:OptionsPattern[]] :=
+    Map[CellularAutomatonEvolution[#, k, r, init, steps, opts] &, rules]
+
+(* Elementary shorthands *)
 CellularAutomatonEvolution[rule_Integer, init_List, steps_Integer, opts:OptionsPattern[]] :=
     CellularAutomatonEvolution[rule, 2, 1, init, steps, opts]
 
