@@ -13,27 +13,39 @@ Needs["WolframInstitute`CellularAutomaton`"]
 
 All functions accept `Method → "Native"` to use the built-in `CellularAutomaton` instead of Rust/GPU (default: `Automatic`).
 
+All search functions support **rule ranges** (`minRule ;; maxRule`) and **rule lists** (`{r1, r2, ...}`) to restrict the search space.
+
 ### `CellularAutomatonSearch`
 
 Find rules matching a target pattern or output width.
 
 ```wolfram
-(* Rules whose output matches a target array *)
+(* Full search over rule space *)
 CellularAutomatonSearch[{k, r}, init → target, steps]
-
-(* Rules whose output has exact active width *)
 CellularAutomatonSearch[{k, r}, init → targetWidth, steps]
 
-(* Multiple inits — ALL must produce targetWidth *)
+(* Restrict to rule range or list *)
+CellularAutomatonSearch[{k, r}, init → target, steps, minRule ;; maxRule]
+CellularAutomatonSearch[{k, r}, init → target, steps, {r1, r2, ...}]
+
+(* Multiple inits — ALL must match *)
 CellularAutomatonSearch[{k, r}, {init1 → target1, ...}, steps]
 
-(* Candidate list, span, random sampling *)
+(* Candidate list / span / random rulespec *)
 CellularAutomatonSearch[{{rn1, ...}, k, r}, ...]
 CellularAutomatonSearch[{min ;; max, k, r}, ...]
 CellularAutomatonSearch[{seed → n, k, r}, ...]
+```
 
-(* Rule range *)
-CellularAutomatonSearch[{k, r}, init → target, steps, minRule ;; maxRule]
+### `CellularAutomatonTest`
+
+Test whether rules produce a target from an init.
+
+```wolfram
+CellularAutomatonTest[{rule, k, r}, init → target, steps]            (* True/False *)
+CellularAutomatonTest[{rule1, rule2, ...}, init → target, steps]      (* filter list *)
+CellularAutomatonTest[minRule ;; maxRule, init → target, steps]       (* filter range *)
+CellularAutomatonTest[{{r1,k1,s1}, ...}, init → target, steps]       (* filter specs *)
 ```
 
 ### `CellularAutomatonWidthRatioSearch`
@@ -42,8 +54,7 @@ Find rules where output width = ratio × input width for ALL initial conditions.
 
 ```wolfram
 CellularAutomatonWidthRatioSearch[inits, steps, ratio, {k, r}]
-
-(* Sieve: filter a pre-existing list of candidate rules *)
+CellularAutomatonWidthRatioSearch[inits, steps, ratio, {k, r}, minRule ;; maxRule]
 CellularAutomatonWidthRatioSearch[inits, steps, ratio, {k, r}, candidateRules]
 ```
 
@@ -63,22 +74,28 @@ coarse = CellularAutomatonWidthRatioSearch[inits5, 400, 2, {3, 1}]
 refined = CellularAutomatonWidthRatioSearch[inits20, 400, 2, {3, 1}, coarse]
 ```
 
-### `CellularAutomatonTest`
-
-Test whether rules produce a target from an init.
-
-```wolfram
-CellularAutomatonTest[{rule, k, r}, init → target, steps]            (* True/False *)
-CellularAutomatonTest[{rule1, rule2, ...}, init → target, steps]      (* filter list *)
-CellularAutomatonTest[{{r1,k1,s1}, ...}, init → target, steps]       (* filter specs *)
-```
-
 ### `CellularAutomatonBoundedWidthSearch`
 
 Rules where the active region never exceeds a maximum width.
 
 ```wolfram
 CellularAutomatonBoundedWidthSearch[init, steps, maxWidth, {k, r}]
+CellularAutomatonBoundedWidthSearch[init, steps, maxWidth, {k, r}, minRule ;; maxRule]
+CellularAutomatonBoundedWidthSearch[init, steps, maxWidth, {k, r}, candidateRules]
+```
+
+### `CellularAutomatonOutputTable` / `CellularAutomatonActiveWidths`
+
+Compute over all rules, a range, or a list.
+
+```wolfram
+CellularAutomatonOutputTable[k, r, init, steps]                      (* all rules *)
+CellularAutomatonOutputTable[k, r, init, steps, minRule ;; maxRule]   (* range *)
+CellularAutomatonOutputTable[k, r, init, steps, {r1, r2, ...}]       (* list *)
+
+CellularAutomatonActiveWidths[k, r, init, steps]                     (* all rules *)
+CellularAutomatonActiveWidths[k, r, init, steps, minRule ;; maxRule]  (* range *)
+CellularAutomatonActiveWidths[k, r, init, steps, {r1, r2, ...}]      (* list *)
 ```
 
 ### `CellularAutomatonOutput` / `CellularAutomatonEvolution`
@@ -86,15 +103,6 @@ CellularAutomatonBoundedWidthSearch[init, steps, maxWidth, {k, r}]
 ```wolfram
 CellularAutomatonOutput[rule, k, r, init, steps]       (* final state *)
 CellularAutomatonEvolution[rule, k, r, init, steps]     (* full spacetime *)
-```
-
-### `CellularAutomatonOutputTable` / `CellularAutomatonActiveWidths`
-
-Compute over all rules in the rule space.
-
-```wolfram
-CellularAutomatonOutputTable[k, r, init, steps]         (* outputs for all rules *)
-CellularAutomatonActiveWidths[k, r, init, steps]        (* {maxWidth, finalWidth} per rule *)
 ```
 
 ### `CellularAutomatonRuleCount`
