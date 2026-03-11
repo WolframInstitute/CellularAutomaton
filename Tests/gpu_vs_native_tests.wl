@@ -127,16 +127,98 @@ With[{db = CellularAutomatonWidthRatioSearch[{CenterArray[{1}, 41]}, 15, 2, {3, 
     ];
 ];
 
-(* NKS doubler sieve — GPU-only algorithm (sequential-scan update, NOT standard parallel CA)
+(* NKS doubler search — GPU-only algorithm using sequential-scan update (NOT standard parallel CA).
    The built-in CellularAutomaton cannot replicate NKS sequential-scan behavior,
-   so we benchmark GPU only, no native comparison *)
-With[{doublers = CellularAutomatonWidthRatioSearch[
-    Table[Append[ConstantArray[1, n], 2], {n, 0, 5}], 400, 2, {3, 1}]},
-    print["   (", Length[doublers], " NKS doubler candidates — GPU-only, no native equivalent)"];
-    With[{t = First @ AbsoluteTiming[
-        CellularAutomatonWidthRatioSearch[
-            Table[Append[ConstantArray[1, n], 2], {n, 0, 10}], 400, 2, {3, 1}, doublers]]},
-        print["  \[Checkmark] NKS sieve n=1..10 (GPU-only): ", NumberForm[1000 t, 4], "ms"];
+   so we test self-consistency, known counts, and known rules instead. *)
+
+print[""];
+print["=== 9. NKS Doubler Search (GPU: ca_find_doublers / ca_refine_doublers) ==="];
+print["   Sequential-scan width-doubler search over k=3 r=1 (3^20 search space)"];
+print["   Uses Append[ConstantArray[1, n], 2] init patterns"];
+
+(* Search at different depths *)
+{tDb5, db5} = AbsoluteTiming[CellularAutomatonWidthRatioSearch[
+    Table[Append[ConstantArray[1, n], 2], {n, 0, 5}], 400, 2, {3, 1}]];
+{tDb10, db10} = AbsoluteTiming[CellularAutomatonWidthRatioSearch[
+    Table[Append[ConstantArray[1, n], 2], {n, 0, 10}], 400, 2, {3, 1}]];
+{tDb15, db15} = AbsoluteTiming[CellularAutomatonWidthRatioSearch[
+    Table[Append[ConstantArray[1, n], 2], {n, 0, 15}], 400, 2, {3, 1}]];
+{tDb20, db20} = AbsoluteTiming[CellularAutomatonWidthRatioSearch[
+    Table[Append[ConstantArray[1, n], 2], {n, 0, 20}], 400, 2, {3, 1}]];
+
+print["   db5:  ", Length[db5],  " doublers (", NumberForm[tDb5, 4], "s)"];
+print["   db10: ", Length[db10], " doublers (", NumberForm[tDb10, 4], "s)"];
+print["   db15: ", Length[db15], " doublers (", NumberForm[tDb15, 4], "s)"];
+print["   db20: ", Length[db20], " doublers (", NumberForm[tDb20, 4], "s)"];
+
+(* Self-consistency: stricter tests should give subsets *)
+$testCount++;
+If[SubsetQ[db5, db10] && SubsetQ[db10, db15] && SubsetQ[db15, db20],
+    $passCount++;
+    print["  \[Checkmark] Monotonicity: db5 \[Superset] db10 \[Superset] db15 \[Superset] db20"];
+    ,
+    $failCount++;
+    AppendTo[$failures, "Monotonicity"];
+    print["  \[Times] Monotonicity: db5 \[Superset] db10 \[Superset] db15 \[Superset] db20"];
+    print["    |db5|=", Length[db5], " |db10|=", Length[db10],
+          " |db15|=", Length[db15], " |db20|=", Length[db20]];
+];
+
+(* Known NKS count: 4278 doublers for n=1..20 *)
+$testCount++;
+If[Length[db20] === 4278,
+    $passCount++;
+    print["  \[Checkmark] NKS count: db20 = 4278"];
+    ,
+    $failCount++;
+    AppendTo[$failures, "NKS count"];
+    print["  \[Times] NKS count: expected 4278, got ", Length[db20]];
+];
+
+(* Known doubler rule should be present *)
+$testCount++;
+With[{knownRule = 4517262867726}, (* verified NKS doubler *)
+    If[MemberQ[db20, knownRule],
+        $passCount++;
+        print["  \[Checkmark] Known doubler 4517262867726 found in db20"];
+        ,
+        $failCount++;
+        AppendTo[$failures, "Known doubler"];
+        print["  \[Times] Known doubler 4517262867726 not found in db20"];
+    ];
+];
+
+(* Sieve consistency: search db20, then sieve db5 through n=1..20 should give same result *)
+$testCount++;
+With[{sieved = CellularAutomatonWidthRatioSearch[
+        Table[Append[ConstantArray[1, n], 2], {n, 0, 20}], 400, 2, {3, 1}, db5]},
+    If[Sort[sieved] === Sort[db20],
+        $passCount++;
+        print["  \[Checkmark] Sieve consistency: sieve(db5, n=1..20) == db20"];
+        ,
+        $failCount++;
+        AppendTo[$failures, "Sieve consistency"];
+        print["  \[Times] Sieve consistency: sieve gave ", Length[sieved], " vs db20 ", Length[db20]];
+    ];
+];
+
+(* Verify a sample of doublers actually double via CellularAutomatonTest *)
+$testCount++;
+With[{sample = Take[db20, UpTo[20]]},
+    With[{allPass = AllTrue[sample, Function[rule,
+        AllTrue[Range[5], Function[n,
+            CellularAutomatonTest[{rule, 3, 1},
+                Append[ConstantArray[1, n], 2] -> ConstantArray[1, 2 (n + 1)], 200]
+        ]]
+    ]]},
+        If[allPass,
+            $passCount++;
+            print["  \[Checkmark] Spot check: first ", Length[sample], " doublers verified for n=1..5"];
+            ,
+            $failCount++;
+            AppendTo[$failures, "Spot check"];
+            print["  \[Times] Spot check: some doublers failed verification"];
+        ];
     ];
 ];
 
