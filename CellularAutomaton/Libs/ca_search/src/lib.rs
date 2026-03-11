@@ -23,6 +23,10 @@ pub fn run_ca(
     initial_cells: &[u8],
     steps: usize,
 ) -> Vec<u8> {
+    // Bit-packed fast path for k=2 r=1
+    if k == 2 && r == 1 {
+        return models::evolve_bitpacked_k2r1(rule_number, initial_cells, steps);
+    }
     let ca = CellularAutomaton::from_rule_number(rule_number, k, r);
     let initial = CAState::new(initial_cells.to_vec(), k);
     let history = ca.evolve(&initial, steps);
@@ -37,6 +41,10 @@ pub fn run_ca_final(
     initial_cells: &[u8],
     steps: usize,
 ) -> Vec<u8> {
+    // Bit-packed fast path for k=2 r=1
+    if k == 2 && r == 1 {
+        return models::evolve_final_bitpacked_k2r1(rule_number, initial_cells, steps);
+    }
     let ca = CellularAutomaton::from_rule_number(rule_number, k, r);
     let initial = CAState::new(initial_cells.to_vec(), k);
     ca.evolve_final(&initial, steps).cells
@@ -53,10 +61,15 @@ pub fn ca_output_table_parallel(
     steps: usize,
 ) -> Vec<u64> {
     let initial = CAState::new(initial_cells.to_vec(), k);
+    let use_bitpacked = k == 2 && r == 1;
     (min_rule..=max_rule)
         .into_par_iter()
         .map(|rule_number| {
             if wll::aborted() { return 0; }
+            if use_bitpacked {
+                let final_cells = models::evolve_final_bitpacked_k2r1(rule_number, initial_cells, steps);
+                return CAState::new(final_cells, k).to_integer();
+            }
             let ca = CellularAutomaton::from_rule_number(rule_number, k, r);
             ca.evolve_final(&initial, steps).to_integer()
         })
@@ -89,6 +102,35 @@ pub fn find_matching_rules(
     }
 
     let target = target_cells.to_vec();
+    let use_bitpacked = k == 2 && r == 1;
+
+    // Bit-packed k=2 r=1 fast path: pack init/target ONCE, share across all 256 rules
+    if use_bitpacked {
+        let packed_init = models::pack_cells_k2(initial_cells);
+        let packed_target = models::pack_cells_k2(target_cells);
+        let width = initial_cells.len();
+        let num_words = packed_init.len();
+
+        return (min_rule..=max_rule)
+            .into_par_iter()
+            .filter(|&rule_number| {
+                if wll::aborted() { return false; }
+                let rule = rule_number as u8;
+                let mut buf_a = packed_init.clone();
+                let mut buf_b = vec![0u64; num_words];
+                for step in 0..steps {
+                    if step % 2 == 0 {
+                        models::step_bitpacked_k2r1(rule, &buf_a, &mut buf_b, width);
+                    } else {
+                        models::step_bitpacked_k2r1(rule, &buf_b, &mut buf_a, width);
+                    }
+                }
+                let result = if steps % 2 == 0 { &buf_a } else { &buf_b };
+                *result == packed_target[..]
+            })
+            .collect();
+    }
+
     (min_rule..=max_rule)
         .into_par_iter()
         .filter(|&rule_number| {
@@ -111,10 +153,14 @@ pub fn ca_evolution_table_parallel(
     steps: usize,
 ) -> Vec<Vec<u8>> {
     let initial = CAState::new(initial_cells.to_vec(), k);
+    let use_bitpacked = k == 2 && r == 1;
     (min_rule..=max_rule)
         .into_par_iter()
         .map(|rule_number| {
             if wll::aborted() { return vec![]; }
+            if use_bitpacked {
+                return models::evolve_bitpacked_k2r1(rule_number, initial_cells, steps);
+            }
             let ca = CellularAutomaton::from_rule_number(rule_number, k, r);
             let history = ca.evolve(&initial, steps);
             history.into_iter().flat_map(|s| s.cells).collect()
@@ -313,12 +359,16 @@ pub fn find_bounded_width_rules(
     }
 
     // Generic fallback for non-k=3 cases
+    let use_bitpacked = k == 2 && r == 1;
     (min_rule..=max_rule)
         .into_par_iter()
         .filter(|&rule_number| {
             if wll::aborted() { return false; }
             if rule_number % k64 != 0 {
                 return false;
+            }
+            if use_bitpacked {
+                return models::is_bounded_bitpacked_k2r1(rule_number, &initial, steps, max_width);
             }
             let ca = CellularAutomaton::from_rule_number(rule_number, k, r);
             ca.is_bounded_width_fast(&initial, steps, max_width)
@@ -819,6 +869,35 @@ pub fn test_rules(
         if let Some(results) = gpu::try_test_rules(candidates, k, r, initial, steps, &target_state) {
             return results;
         }
+    }
+
+    let use_bitpacked = k == 2 && r == 1;
+
+    // Bit-packed k=2 r=1 fast path: pack init/target ONCE
+    if use_bitpacked {
+        let packed_init = models::pack_cells_k2(&initial.cells);
+        let packed_target = models::pack_cells_k2(target);
+        let width = initial.cells.len();
+        let num_words = packed_init.len();
+
+        return candidates
+            .par_iter()
+            .map(|&rule_number| {
+                if wll::aborted() { return 0u8; }
+                let rule = rule_number as u8;
+                let mut buf_a = packed_init.clone();
+                let mut buf_b = vec![0u64; num_words];
+                for step in 0..steps {
+                    if step % 2 == 0 {
+                        models::step_bitpacked_k2r1(rule, &buf_a, &mut buf_b, width);
+                    } else {
+                        models::step_bitpacked_k2r1(rule, &buf_b, &mut buf_a, width);
+                    }
+                }
+                let result = if steps % 2 == 0 { &buf_a } else { &buf_b };
+                if *result == packed_target[..] { 1u8 } else { 0u8 }
+            })
+            .collect();
     }
 
     candidates

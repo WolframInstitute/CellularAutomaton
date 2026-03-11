@@ -411,6 +411,180 @@ impl CellularAutomaton {
     }
 }
 
+// =============================================================================
+// Bit-packed k=2 r=1 engine: 64 cells per u64 word, pure bitwise step
+// =============================================================================
+
+/// Pack byte-per-cell representation into bit-packed u64 words.
+/// Cell 0 goes into bit 0 of word 0, cell 63 into bit 63 of word 0,
+/// cell 64 into bit 0 of word 1, etc.
+#[inline]
+pub fn pack_cells_k2(cells: &[u8]) -> Vec<u64> {
+    let num_words = (cells.len() + 63) / 64;
+    let mut packed = vec![0u64; num_words];
+    for (i, &c) in cells.iter().enumerate() {
+        if c != 0 {
+            packed[i / 64] |= 1u64 << (i % 64);
+        }
+    }
+    packed
+}
+
+/// Unpack bit-packed u64 words back to byte-per-cell.
+#[inline]
+pub fn unpack_cells_k2(packed: &[u64], width: usize) -> Vec<u8> {
+    let mut cells = vec![0u8; width];
+    for i in 0..width {
+        if packed[i / 64] & (1u64 << (i % 64)) != 0 {
+            cells[i] = 1;
+        }
+    }
+    cells
+}
+
+/// Compute one bit-packed step for any elementary CA rule.
+/// `rule` is the rule number (0-255).
+/// `src` and `dst` are bit-packed u64 arrays.
+/// `width` is the total number of cells (for wrapping boundary).
+///
+/// For each cell, the neighborhood (L, C, R) is a 3-bit index into the rule.
+/// We compute ALL 64 cells per word simultaneously using bitwise ops.
+#[inline]
+pub fn step_bitpacked_k2r1(rule: u8, src: &[u64], dst: &mut [u64], width: usize) {
+    let num_words = src.len();
+    if num_words == 0 { return; }
+
+    for w in 0..num_words {
+        let center = src[w];
+
+        // Left neighbor of cell i is cell i-1 (lower index).
+        // center << 1: result bit i = source bit i-1 (cell w*64+i-1) = left neighbor ✓
+        // Carry: bit 0 of result needs MSB (bit 63) of previous word
+        let prev_word = if w > 0 { src[w - 1] } else { src[num_words - 1] };
+        let left = (center << 1) | (prev_word >> 63);
+
+        // Right neighbor of cell i is cell i+1 (higher index).
+        // center >> 1: result bit i = source bit i+1 (cell w*64+i+1) = right neighbor ✓
+        // Carry: bit 63 of result needs LSB (bit 0) of next word
+        let next_word = if w + 1 < num_words { src[w + 1] } else { src[0] };
+        let right = (center >> 1) | (next_word << 63);
+
+        // Mask out padding bits in the last word
+        dst[w] = bitwise_rule_k2(rule, left, center, right);
+    }
+
+    // Mask out padding bits in the last word (cells beyond `width`)
+    let remainder = width % 64;
+    if remainder != 0 && num_words > 0 {
+        dst[num_words - 1] &= (1u64 << remainder) - 1;
+    }
+}
+
+/// Evaluate an elementary CA rule for 64 cells simultaneously.
+/// `l`, `c`, `r` are the left, center, right neighbor words (bit-packed).
+/// Returns the next-generation word.
+///
+/// Each bit position has a 3-bit neighborhood (l_i, c_i, r_i) → index 4*l_i + 2*c_i + r_i.
+/// The output is rule bit at that index. We compute this via boolean decomposition:
+/// output = OR of (rule_bit_j AND minterm_j) for j=0..7
+#[inline(always)]
+fn bitwise_rule_k2(rule: u8, l: u64, c: u64, r: u64) -> u64 {
+    let nl = !l;
+    let nc = !c;
+    let nr = !r;
+    let mut result = 0u64;
+    // Neighborhood 000 (index 0): !L & !C & !R
+    if rule & (1 << 0) != 0 { result |= nl & nc & nr; }
+    // Neighborhood 001 (index 1): !L & !C & R
+    if rule & (1 << 1) != 0 { result |= nl & nc & r; }
+    // Neighborhood 010 (index 2): !L & C & !R
+    if rule & (1 << 2) != 0 { result |= nl & c & nr; }
+    // Neighborhood 011 (index 3): !L & C & R
+    if rule & (1 << 3) != 0 { result |= nl & c & r; }
+    // Neighborhood 100 (index 4): L & !C & !R
+    if rule & (1 << 4) != 0 { result |= l & nc & nr; }
+    // Neighborhood 101 (index 5): L & !C & R
+    if rule & (1 << 5) != 0 { result |= l & nc & r; }
+    // Neighborhood 110 (index 6): L & C & !R
+    if rule & (1 << 6) != 0 { result |= l & c & nr; }
+    // Neighborhood 111 (index 7): L & C & R
+    if rule & (1 << 7) != 0 { result |= l & c & r; }
+    result
+}
+
+/// Bit-packed evolve_final for k=2, r=1.
+/// Packs once, runs all steps with double-buffered bitpacked arrays, unpacks once.
+pub fn evolve_final_bitpacked_k2r1(rule_number: u64, initial_cells: &[u8], steps: usize) -> Vec<u8> {
+    let width = initial_cells.len();
+    let rule = rule_number as u8;
+    let mut buf_a = pack_cells_k2(initial_cells);
+    let mut buf_b = vec![0u64; buf_a.len()];
+
+    for step in 0..steps {
+        if step % 2 == 0 {
+            step_bitpacked_k2r1(rule, &buf_a, &mut buf_b, width);
+        } else {
+            step_bitpacked_k2r1(rule, &buf_b, &mut buf_a, width);
+        }
+    }
+
+    unpack_cells_k2(if steps % 2 == 0 { &buf_a } else { &buf_b }, width)
+}
+
+/// Bit-packed evolve (full history) for k=2, r=1.
+/// Returns flat Vec<u8> of all (steps+1) generations concatenated.
+pub fn evolve_bitpacked_k2r1(rule_number: u64, initial_cells: &[u8], steps: usize) -> Vec<u8> {
+    let width = initial_cells.len();
+    let rule = rule_number as u8;
+    let mut buf_a = pack_cells_k2(initial_cells);
+    let mut buf_b = vec![0u64; buf_a.len()];
+
+    let mut result = Vec::with_capacity(width * (steps + 1));
+    result.extend_from_slice(initial_cells);
+
+    for step in 0..steps {
+        if step % 2 == 0 {
+            step_bitpacked_k2r1(rule, &buf_a, &mut buf_b, width);
+            result.extend_from_slice(&unpack_cells_k2(&buf_b, width));
+        } else {
+            step_bitpacked_k2r1(rule, &buf_b, &mut buf_a, width);
+            result.extend_from_slice(&unpack_cells_k2(&buf_a, width));
+        }
+    }
+    result
+}
+
+/// Bit-packed bounded-width check for k=2, r=1.
+/// Returns true if the active width never exceeds max_allowed_width.
+pub fn is_bounded_bitpacked_k2r1(
+    rule_number: u64, initial_cells: &[u8], steps: usize, max_allowed_width: usize
+) -> bool {
+    let width = initial_cells.len();
+    let rule = rule_number as u8;
+    let mut buf_a = pack_cells_k2(initial_cells);
+    let mut buf_b = vec![0u64; buf_a.len()];
+
+    for step in 0..steps {
+        let (src, dst) = if step % 2 == 0 {
+            (&buf_a, &mut buf_b)
+        } else {
+            (&buf_b, &mut buf_a)
+        };
+        step_bitpacked_k2r1(rule, src, dst, width);
+
+        // Check active width from the packed representation
+        let cells = unpack_cells_k2(dst, width);
+        let first = cells.iter().position(|&c| c != 0);
+        let last = cells.iter().rposition(|&c| c != 0);
+        if let (Some(f), Some(l)) = (first, last) {
+            if l - f + 1 > max_allowed_width {
+                return false;
+            }
+        }
+    }
+    true
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
