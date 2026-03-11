@@ -124,7 +124,9 @@ toDS[list_List] := Developer`DataStore @@ list
 fromDS[ds_] := List @@ ds
 
 (* ---- Method dispatch ---- *)
-(* Each function accepts Method -> "Native" option to use pure WL CellularAutomaton *)
+(* OptionValue[Method] is unreliable inside /; conditions (WL pattern matching bug).
+   Use isNativeQ[opts] with named opts:OptionsPattern[] instead. *)
+isNativeQ[opts___] := MemberQ[Flatten[{opts}], Method -> "Native"]
 
 (* ---- Native WL implementations using built-in CellularAutomaton ---- *)
 (* These use periodic boundary on a zero-padded tape to match Rust's fixed-width behavior *)
@@ -248,7 +250,7 @@ Options[CellularAutomatonOutput] = {Method -> Automatic};
 
 (* Native path *)
 CellularAutomatonOutput[rule_Integer, k_Integer, r_Integer, init_List, steps_Integer, OptionsPattern[]] /;
-    OptionValue[Method] === "Native" :=
+    isNativeQ[opts] :=
     nativeCAFinal[rule, k, r, init, steps]
 
 (* Rust path *)
@@ -275,7 +277,7 @@ Options[CellularAutomatonEvolution] = {Method -> Automatic};
 
 (* Native path *)
 CellularAutomatonEvolution[rule_Integer, k_Integer, r_Integer, init_List, steps_Integer, OptionsPattern[]] /;
-    OptionValue[Method] === "Native" :=
+    isNativeQ[opts] :=
     nativeCAEvolution[rule, k, r, init, steps]
 
 (* Rust path *)
@@ -316,32 +318,36 @@ Options[CellularAutomatonSearch] = {Method -> Automatic};
 
 (* Single target — Native path *)
 CellularAutomatonSearch[{k_Integer, r_Integer}, Rule[init_List, target_List], steps_Integer, opts:OptionsPattern[]] /;
-    OptionValue[Method] === "Native" :=
+    isNativeQ[opts] :=
     nativeCASearch[0, CellularAutomatonRuleCount[k, r] - 1, k, r, init, steps, target]
 
 CellularAutomatonSearch[{k_Integer, r_Integer}, Rule[init_List, target_List], steps_Integer,
     minRule_Integer ;; maxRule_Integer, opts:OptionsPattern[]] /;
-    OptionValue[Method] === "Native" :=
+    isNativeQ[opts] :=
     nativeCASearch[minRule, maxRule, k, r, init, steps, target]
 
 (* Width target — Native path *)
 CellularAutomatonSearch[{k_Integer, r_Integer}, Rule[init_List, targetWidth_Integer], steps_Integer, opts:OptionsPattern[]] /;
-    OptionValue[Method] === "Native" :=
+    isNativeQ[opts] :=
     nativeExactWidthSearch[0, CellularAutomatonRuleCount[k, r] - 1, k, r, {init}, steps, targetWidth]
 
 (* Single target — Rust *)
-CellularAutomatonSearch[{k_Integer, r_Integer}, Rule[init_List, target_List], steps_Integer, OptionsPattern[]] :=
+CellularAutomatonSearch[{k_Integer, r_Integer}, Rule[init_List, target_List], steps_Integer, OptionsPattern[]] /;
+    !isNativeQ[opts] :=
     fromNA @ FindMatchingRulesRust[0, CellularAutomatonRuleCount[k, r] - 1, k, r, toNA32[init], steps, toNA32[target]]
 
-CellularAutomatonSearch[{k_Integer, r_Integer}, Rule[init_List, target_List], steps_Integer, minRule_Integer ;; maxRule_Integer, OptionsPattern[]] :=
+CellularAutomatonSearch[{k_Integer, r_Integer}, Rule[init_List, target_List], steps_Integer, minRule_Integer ;; maxRule_Integer, OptionsPattern[]] /;
+    !isNativeQ[opts] :=
     fromNA @ FindMatchingRulesRust[minRule, maxRule, k, r, toNA32[init], steps, toNA32[target]]
 
 (* Width target *)
-CellularAutomatonSearch[{k_Integer, r_Integer}, Rule[init_List, targetWidth_Integer], steps_Integer, OptionsPattern[]] :=
+CellularAutomatonSearch[{k_Integer, r_Integer}, Rule[init_List, targetWidth_Integer], steps_Integer, OptionsPattern[]] /;
+    !isNativeQ[opts] :=
     fromNA @ FindExactWidthRulesRust[0, CellularAutomatonRuleCount[k, r] - 1, k, r,
         toNA32[init], 1, steps, targetWidth]
 
-CellularAutomatonSearch[{k_Integer, r_Integer}, Rule[init_List, targetWidth_Integer], steps_Integer, minRule_Integer ;; maxRule_Integer, OptionsPattern[]] :=
+CellularAutomatonSearch[{k_Integer, r_Integer}, Rule[init_List, targetWidth_Integer], steps_Integer, minRule_Integer ;; maxRule_Integer, OptionsPattern[]] /;
+    !isNativeQ[opts] :=
     fromNA @ FindExactWidthRulesRust[minRule, maxRule, k, r,
         toNA32[init], 1, steps, targetWidth]
 
@@ -525,8 +531,8 @@ CellularAutomatonTest[specs : {{_Integer, _Integer, _Integer} ..}, Rule[init_Lis
 CellularAutomatonTest[{}, Rule[_List, _List], _Integer, {_Integer, _Integer}, OptionsPattern[]] := {}
 
 (* Native path: batch test *)
-CellularAutomatonTest[rules : {__Integer}, Rule[init_List, target_List], steps_Integer, {k_Integer, r_Integer}, OptionsPattern[]] /;
-    OptionValue[Method] === "Native" :=
+CellularAutomatonTest[rules : {__Integer}, Rule[init_List, target_List], steps_Integer, {k_Integer, r_Integer}, opts:OptionsPattern[]] /;
+    isNativeQ[opts] :=
     With[{padWidth = Max[Length[init], Length[target]] + 2 * steps + 2},
         With[{paddedInit = padCenter[init, padWidth, k],
               paddedTarget = padCenter[target, padWidth, k]},
@@ -589,21 +595,23 @@ Options[CellularAutomatonOutputTable] = {Method -> Automatic};
 
 (* Native path *)
 CellularAutomatonOutputTable[k_Integer, r_Integer, init_List, steps_Integer, OptionsPattern[]] /;
-    OptionValue[Method] === "Native" :=
+    isNativeQ[opts] :=
     nativeOutputTable[0, CellularAutomatonRuleCount[k, r] - 1, k, r, init, steps]
 
 CellularAutomatonOutputTable[k_Integer, r_Integer, init_List, steps_Integer,
-    minRule_Integer ;; maxRule_Integer, OptionsPattern[]] /; OptionValue[Method] === "Native" :=
+    minRule_Integer ;; maxRule_Integer, opts:OptionsPattern[]] /; isNativeQ[opts] :=
     nativeOutputTable[minRule, maxRule, k, r, init, steps]
 
 (* Rust path *)
-CellularAutomatonOutputTable[k_Integer, r_Integer, init_List, steps_Integer, OptionsPattern[]] :=
+CellularAutomatonOutputTable[k_Integer, r_Integer, init_List, steps_Integer, OptionsPattern[]] /;
+    !isNativeQ[opts] :=
     fromNA @ CAOutputTableParallelRust[0, CellularAutomatonRuleCount[k, r] - 1, k, r, toNA32[init], steps]
 
 CellularAutomatonOutputTable[init_List, steps_Integer, opts:OptionsPattern[CellularAutomatonOutputTable]] :=
     CellularAutomatonOutputTable[2, 1, init, steps, opts]
 
-CellularAutomatonOutputTable[k_Integer, r_Integer, init_List, steps_Integer, minRule_Integer ;; maxRule_Integer, OptionsPattern[]] :=
+CellularAutomatonOutputTable[k_Integer, r_Integer, init_List, steps_Integer, minRule_Integer ;; maxRule_Integer, OptionsPattern[]] /;
+    !isNativeQ[opts] :=
     fromNA @ CAOutputTableParallelRust[minRule, maxRule, k, r, toNA32[init], steps]
 
 
@@ -613,22 +621,24 @@ Options[CellularAutomatonBoundedWidthSearch] = {Method -> Automatic};
 
 (* Native path *)
 CellularAutomatonBoundedWidthSearch[init_List, steps_Integer, maxWidth_Integer, {k_Integer, r_Integer}, OptionsPattern[]] /;
-    OptionValue[Method] === "Native" :=
+    isNativeQ[opts] :=
     nativeBoundedSearch[0, CellularAutomatonRuleCount[k, r] - 1, k, r, init, steps, maxWidth]
 
 CellularAutomatonBoundedWidthSearch[init_List, steps_Integer, maxWidth_Integer, {k_Integer, r_Integer},
     minRule_Integer ;; maxRule_Integer, OptionsPattern[CellularAutomatonBoundedWidthSearch]] /;
-    OptionValue[Method] === "Native" :=
+    isNativeQ[opts] :=
     nativeBoundedSearch[minRule, maxRule, k, r, init, steps, maxWidth]
 
 (* Rust path *)
-CellularAutomatonBoundedWidthSearch[init_List, steps_Integer, maxWidth_Integer, {k_Integer, r_Integer}, OptionsPattern[]] :=
+CellularAutomatonBoundedWidthSearch[init_List, steps_Integer, maxWidth_Integer, {k_Integer, r_Integer}, OptionsPattern[]] /;
+    !isNativeQ[opts] :=
     fromNA @ FindBoundedWidthRulesRust[0, CellularAutomatonRuleCount[k, r] - 1, k, r, toNA32[init], steps, maxWidth]
 
 CellularAutomatonBoundedWidthSearch[init_List, steps_Integer, maxWidth_Integer, opts:OptionsPattern[CellularAutomatonBoundedWidthSearch]] :=
     CellularAutomatonBoundedWidthSearch[init, steps, maxWidth, {2, 1}, opts]
 
-CellularAutomatonBoundedWidthSearch[init_List, steps_Integer, maxWidth_Integer, {k_Integer, r_Integer}, minRule_Integer ;; maxRule_Integer, OptionsPattern[]] :=
+CellularAutomatonBoundedWidthSearch[init_List, steps_Integer, maxWidth_Integer, {k_Integer, r_Integer}, minRule_Integer ;; maxRule_Integer, OptionsPattern[]] /;
+    !isNativeQ[opts] :=
     fromNA @ FindBoundedWidthRulesRust[minRule, maxRule, k, r, toNA32[init], steps, maxWidth]
 
 
@@ -638,22 +648,24 @@ Options[CellularAutomatonActiveWidths] = {Method -> Automatic};
 
 (* Native path *)
 CellularAutomatonActiveWidths[k_Integer, r_Integer, init_List, steps_Integer, OptionsPattern[]] /;
-    OptionValue[Method] === "Native" :=
+    isNativeQ[opts] :=
     nativeActiveWidths[0, CellularAutomatonRuleCount[k, r] - 1, k, r, init, steps]
 
 CellularAutomatonActiveWidths[k_Integer, r_Integer, init_List, steps_Integer,
     minRule_Integer ;; maxRule_Integer, OptionsPattern[CellularAutomatonActiveWidths]] /;
-    OptionValue[Method] === "Native" :=
+    isNativeQ[opts] :=
     nativeActiveWidths[minRule, maxRule, k, r, init, steps]
 
 (* Rust path *)
-CellularAutomatonActiveWidths[k_Integer, r_Integer, init_List, steps_Integer, OptionsPattern[]] :=
+CellularAutomatonActiveWidths[k_Integer, r_Integer, init_List, steps_Integer, OptionsPattern[]] /;
+    !isNativeQ[opts] :=
     Partition[fromNA @ MaxActiveWidthsParallelRust[0, CellularAutomatonRuleCount[k, r] - 1, k, r, toNA32[init], steps], 2]
 
 CellularAutomatonActiveWidths[init_List, steps_Integer, opts:OptionsPattern[CellularAutomatonActiveWidths]] :=
     CellularAutomatonActiveWidths[2, 1, init, steps, opts]
 
-CellularAutomatonActiveWidths[k_Integer, r_Integer, init_List, steps_Integer, minRule_Integer ;; maxRule_Integer, OptionsPattern[]] :=
+CellularAutomatonActiveWidths[k_Integer, r_Integer, init_List, steps_Integer, minRule_Integer ;; maxRule_Integer, OptionsPattern[]] /;
+    !isNativeQ[opts] :=
     Partition[fromNA @ MaxActiveWidthsParallelRust[minRule, maxRule, k, r, toNA32[init], steps], 2]
 
 
@@ -664,7 +676,7 @@ Options[CellularAutomatonWidthRatioSearch] = {Method -> Automatic};
 (* Native path: full search *)
 CellularAutomatonWidthRatioSearch[inits:{__List}, steps_Integer, ratio_?NumericQ, {k_Integer, r_Integer},
         minRule_Integer ;; maxRule_Integer, maxWidth_Integer, OptionsPattern[]] /;
-    OptionValue[Method] === "Native" :=
+    isNativeQ[opts] :=
     With[{rat = Rationalize[ratio]},
         nativeWidthRatioSearch[minRule, maxRule, k, r, inits, steps,
             Numerator[rat], Denominator[rat], maxWidth]
@@ -672,7 +684,7 @@ CellularAutomatonWidthRatioSearch[inits:{__List}, steps_Integer, ratio_?NumericQ
 
 (* Native path: sieve candidate list *)
 CellularAutomatonWidthRatioSearch[inits:{__List}, steps_Integer, ratio_?NumericQ, {k_Integer, r_Integer},
-        rules_List, OptionsPattern[]] /; OptionValue[Method] === "Native" :=
+        rules_List, opts:OptionsPattern[]] /; isNativeQ[opts] :=
     With[{rat = Rationalize[ratio]},
         nativeFilterWidthRatio[rules, k, r, inits, steps,
             Numerator[rat], Denominator[rat], Max[Length /@ inits]]
@@ -680,7 +692,8 @@ CellularAutomatonWidthRatioSearch[inits:{__List}, steps_Integer, ratio_?NumericQ
 
 (* Rust path: full search *)
 CellularAutomatonWidthRatioSearch[inits:{__List}, steps_Integer, ratio_?NumericQ, {k_Integer, r_Integer},
-        minRule_Integer ;; maxRule_Integer, maxWidth_Integer, OptionsPattern[]] :=
+        minRule_Integer ;; maxRule_Integer, maxWidth_Integer, OptionsPattern[]] /;
+    !isNativeQ[opts] :=
     With[{rat = Rationalize[ratio], flat = Flatten[inits], n = Length[inits]},
         fromNA @ FindWidthRatioRulesRust[minRule, maxRule, k, r, toNA32[flat], n, steps,
             Numerator[rat], Denominator[rat], maxWidth]
@@ -697,7 +710,7 @@ isNKSDoublerPattern[init_List] := init === Append[ConstantArray[1, Length[init] 
 (* Specialized fast path: ratio=2, k=3, r=1 with NKS-standard patterns *)
 CellularAutomatonWidthRatioSearch[inits:{__List}, steps_Integer, 2, {3, 1},
     opts:OptionsPattern[CellularAutomatonWidthRatioSearch]] /;
-    OptionValue[Method] =!= "Native" && AllTrue[inits, isNKSDoublerPattern] :=
+    !isNativeQ[opts] && AllTrue[inits, isNKSDoublerPattern] :=
     With[{maxN = Max[Length /@ inits]},
         With[{gpuCandidates = fromNA @ FindDoublersK3R1Rust[Min[maxN, 12]]},
             If[maxN <= 12,
@@ -711,7 +724,7 @@ CellularAutomatonWidthRatioSearch[inits:{__List}, steps_Integer, 2, {3, 1},
 (* Non-NKS inits, ratio=2, k=3, r=1: use NKS doubler as pre-filter, then verify with actual inits *)
 CellularAutomatonWidthRatioSearch[inits:{__List}, steps_Integer, 2, {3, 1},
     opts:OptionsPattern[CellularAutomatonWidthRatioSearch]] /;
-    OptionValue[Method] =!= "Native" :=
+    !isNativeQ[opts] :=
     With[{candidates = fromNA @ FindDoublersK3R1Rust[Min[Max[Length /@ inits], 12]]},
         CellularAutomatonWidthRatioSearch[inits, steps, 2, {3, 1}, candidates]
     ]
@@ -719,13 +732,13 @@ CellularAutomatonWidthRatioSearch[inits:{__List}, steps_Integer, 2, {3, 1},
 (* Specialized sieve: ratio=2, k=3, r=1, NKS patterns *)
 CellularAutomatonWidthRatioSearch[inits:{__List}, steps_Integer, 2, {3, 1}, rules_List,
     opts:OptionsPattern[CellularAutomatonWidthRatioSearch]] /;
-    OptionValue[Method] =!= "Native" && AllTrue[inits, isNKSDoublerPattern] :=
+    !isNativeQ[opts] && AllTrue[inits, isNKSDoublerPattern] :=
     fromNA @ FilterDoublersK3R1RangeRust[toNA64[rules], 1, Max[Length /@ inits]]
 
 (* Specialized sieve: ratio=2, k=3, r=1, non-NKS patterns — use general filter *)
 CellularAutomatonWidthRatioSearch[inits:{__List}, steps_Integer, 2, {3, 1}, rules_List,
     opts:OptionsPattern[CellularAutomatonWidthRatioSearch]] /;
-    OptionValue[Method] =!= "Native" :=
+    !isNativeQ[opts] :=
     With[{flat = Flatten[inits], n = Length[inits]},
         fromNA @ FilterWidthRatioRulesRust[toNA64[rules], 3, 1, toNA32[flat], n, steps,
             2, 1, Max[Length /@ inits]]
@@ -741,7 +754,8 @@ CellularAutomatonWidthRatioSearch[inits:{__List}, steps_Integer, ratio_, opts:Op
 
 (* Sieve overload: filter a provided list of candidate rules *)
 CellularAutomatonWidthRatioSearch[inits:{__List}, steps_Integer, ratio_?NumericQ, {k_Integer, r_Integer},
-        rules_List, OptionsPattern[]] :=
+        rules_List, OptionsPattern[]] /;
+    !isNativeQ[opts] :=
     With[{rat = Rationalize[ratio], flat = Flatten[inits], n = Length[inits]},
         fromNA @ FilterWidthRatioRulesRust[toNA64[rules], k, r, toNA32[flat], n, steps,
             Numerator[rat], Denominator[rat], Max[Length /@ inits]]
