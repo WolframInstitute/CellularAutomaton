@@ -225,7 +225,7 @@ nativeWidthRatioSearch[minRule_Integer, maxRule_Integer, k_Integer, r_Integer,
         Function[rule,
             AllTrue[initials,
                 Function[init,
-                    With[{evo = CellularAutomaton[{rule, k, r}, init, steps]},
+                    With[{evo = CellularAutomaton[{rule, k, r}, {init, 0}, steps]},
                         AllTrue[evo, CellularAutomatonStateWidth[#] <= maxWidth &] &&
                         With[{iw = CellularAutomatonStateWidth[init],
                               fw = CellularAutomatonStateWidth[Last[evo]]},
@@ -249,7 +249,7 @@ nativeFilterWidthRatio[rules_List, k_Integer, r_Integer,
         Function[rule,
             AllTrue[initials,
                 Function[init,
-                    With[{evo = CellularAutomaton[{rule, k, r}, init, steps]},
+                    With[{evo = CellularAutomaton[{rule, k, r}, {init, 0}, steps]},
                         AllTrue[evo, CellularAutomatonStateWidth[#] <= maxWidth &] &&
                         With[{iw = CellularAutomatonStateWidth[init],
                               fw = CellularAutomatonStateWidth[Last[evo]]},
@@ -794,9 +794,10 @@ CellularAutomatonWidthRatioSearch[inits:{__List}, steps_Integer, ratio_?NumericQ
 (* Native path: sieve candidate list *)
 CellularAutomatonWidthRatioSearch[inits:{__List}, steps_Integer, ratio_?NumericQ, {k_Integer, r_Integer},
         rules_List, opts:OptionsPattern[]] /; isNativeQ[opts] :=
-    With[{rat = Rationalize[ratio]},
+    With[{rat = Rationalize[ratio],
+          maxWidth = Max[Length /@ inits] + 2 * steps},
         nativeFilterWidthRatio[rules, k, r, inits, steps,
-            Numerator[rat], Denominator[rat], Max[Length /@ inits]]
+            Numerator[rat], Denominator[rat], maxWidth]
     ]
 
 (* Rust path: full search *)
