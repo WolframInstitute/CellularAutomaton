@@ -194,6 +194,7 @@ impl CellularAutomaton {
     }
 
     /// Compute the neighborhood index for position `pos` in `cells` with wrapping boundary.
+    #[inline(always)]
     fn neighborhood_index(&self, cells: &[u8], pos: usize) -> usize {
         let width = cells.len();
         let r = self.r as usize;
@@ -205,54 +206,110 @@ impl CellularAutomaton {
         index
     }
 
+    /// Evolve one step, writing result into `dst`. No allocations.
+    #[inline]
+    pub fn step_into(&self, src: &[u8], dst: &mut [u8]) {
+        if self.r == 1 {
+            self.step_into_r1(src, dst);
+        } else {
+            let width = src.len();
+            for i in 0..width {
+                let idx = self.neighborhood_index(src, i);
+                dst[i] = self.rule_table[idx];
+            }
+        }
+    }
+
+    /// Specialized r=1 step with unsafe bounds elimination.
+    /// Handles boundary wrapping explicitly, then uses unchecked access for the bulk.
+    #[inline(always)]
+    fn step_into_r1(&self, src: &[u8], dst: &mut [u8]) {
+        let w = src.len();
+        if w == 0 { return; }
+        let k = self.k as usize;
+        let table = &self.rule_table;
+
+        // First cell: wraps left
+        let idx0 = src[w - 1] as usize * k * k + src[0] as usize * k + src[1.min(w - 1)] as usize;
+        dst[0] = table[idx0];
+
+        // Middle cells: no wrapping needed, use unsafe for speed
+        if w > 2 {
+            unsafe {
+                for i in 1..w - 1 {
+                    let idx = *src.get_unchecked(i - 1) as usize * k * k
+                        + *src.get_unchecked(i) as usize * k
+                        + *src.get_unchecked(i + 1) as usize;
+                    *dst.get_unchecked_mut(i) = *table.get_unchecked(idx);
+                }
+            }
+        }
+
+        // Last cell: wraps right
+        if w > 1 {
+            let idx_last = src[w - 2] as usize * k * k + src[w - 1] as usize * k + src[0] as usize;
+            dst[w - 1] = table[idx_last];
+        }
+    }
+
     /// Evolve a CAState by one step. Returns the next generation.
     pub fn step(&self, state: &CAState) -> CAState {
-        let width = state.width();
-        let mut next_cells = vec![0u8; width];
-        for i in 0..width {
-            let idx = self.neighborhood_index(&state.cells, i);
-            next_cells[i] = self.rule_table[idx];
-        }
-        CAState {
-            cells: next_cells,
-            k: state.k,
-        }
+        let mut next_cells = vec![0u8; state.width()];
+        self.step_into(&state.cells, &mut next_cells);
+        CAState { cells: next_cells, k: state.k }
     }
 
     /// Evolve a CAState for `steps` generations. Returns all generations (including initial).
     pub fn evolve(&self, initial: &CAState, steps: usize) -> Vec<CAState> {
         let mut history = Vec::with_capacity(steps + 1);
-        let mut current = initial.clone();
-        history.push(current.clone());
+        history.push(initial.clone());
+        let width = initial.width();
+        let mut buf = vec![0u8; width];
+        let mut current = initial.cells.clone();
         for _ in 0..steps {
-            current = self.step(&current);
-            history.push(current.clone());
+            self.step_into(&current, &mut buf);
+            history.push(CAState::new(buf.clone(), self.k));
+            std::mem::swap(&mut current, &mut buf);
         }
         history
     }
 
-    /// Evolve and return only the final state.
+    /// Evolve and return only the final state. Uses double-buffering — only 1 extra allocation.
     pub fn evolve_final(&self, initial: &CAState, steps: usize) -> CAState {
-        let mut current = initial.clone();
-        for _ in 0..steps {
-            current = self.step(&current);
+        let width = initial.width();
+        let mut buf_a = initial.cells.clone();
+        let mut buf_b = vec![0u8; width];
+        for step in 0..steps {
+            if step % 2 == 0 {
+                self.step_into(&buf_a, &mut buf_b);
+            } else {
+                self.step_into(&buf_b, &mut buf_a);
+            }
         }
-        current
+        CAState::new(if steps % 2 == 0 { buf_a } else { buf_b }, self.k)
     }
 
     /// Compute the maximum active width across an entire evolution.
-    /// Returns (max_width, final_width).
+    /// Returns (max_width, final_width). Uses double-buffering.
     pub fn max_active_width(&self, initial: &CAState, steps: usize) -> (usize, usize) {
-        let mut current = initial.clone();
-        let mut max_w = current.active_width();
-        for _ in 0..steps {
-            current = self.step(&current);
-            let w = current.active_width();
-            if w > max_w {
-                max_w = w;
-            }
+        let width = initial.width();
+        let mut buf_a = initial.cells.clone();
+        let mut buf_b = vec![0u8; width];
+        let mut max_w = CAState::new(buf_a.clone(), self.k).active_width();
+        for step in 0..steps {
+            let (src, dst) = if step % 2 == 0 {
+                (&buf_a as &[u8], &mut buf_b as &mut [u8])
+            } else {
+                (&buf_b as &[u8], &mut buf_a as &mut [u8])
+            };
+            self.step_into(src, dst);
+            let state = CAState::new(dst.to_vec(), self.k);
+            let w = state.active_width();
+            if w > max_w { max_w = w; }
         }
-        (max_w, current.active_width())
+        let final_cells = if steps % 2 == 0 { &buf_a } else { &buf_b };
+        let final_w = CAState::new(final_cells.to_vec(), self.k).active_width();
+        (max_w, final_w)
     }
 
     /// Check if the evolution has bounded width: the active region
