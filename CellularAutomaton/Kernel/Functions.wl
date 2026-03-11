@@ -55,8 +55,10 @@ CellularAutomatonWidthRatioSearch[inits, steps, ratio] uses elementary defaults 
 Method \[Rule] \"Native\" uses the built-in CellularAutomaton."
 
 CellularAutomatonTest::usage = "CellularAutomatonTest[{rule, k, r}, init \[Rule] target, steps] returns True if the CA produces target from init.
+CellularAutomatonTest[{rule, k, r}, {init1 \[Rule] target1, \[Ellipsis]}, steps] returns True if ALL targets are produced.
 CellularAutomatonTest[rule, init \[Rule] target, steps] uses elementary defaults (k=2, r=1).
 CellularAutomatonTest[{rule1, rule2, \[Ellipsis]}, init \[Rule] target, steps, {k, r}] filters a list of rules (parallel).
+CellularAutomatonTest[{rule1, rule2, \[Ellipsis]}, {init1 \[Rule] target1, \[Ellipsis]}, steps, {k, r}] sieves a list of rules through multiple pairs.
 CellularAutomatonTest[min ;; max, init \[Rule] target, steps, {k, r}] filters a rule range.
 CellularAutomatonTest[{{r1, k1, s1}, \[Ellipsis]}, init \[Rule] target, steps] filters rule specs.
 Method \[Rule] \"Native\" uses the built-in CellularAutomaton."
@@ -64,6 +66,8 @@ Method \[Rule] \"Native\" uses the built-in CellularAutomaton."
 CellularAutomatonPlot::usage = "CellularAutomatonPlot[rule, width, steps] plots the spacetime evolution of an elementary CA.
 CellularAutomatonPlot[rule, init, steps] evolves from an explicit initial condition.
 CellularAutomatonPlot[rule, {k, r}, init, steps] specifies k colors and radius r."
+
+CellularAutomatonStateWidth::usage = "CellularAutomatonStateWidth[state] returns the active width (extent of nonzero cells) of a 1D CA state."
 
 CARuleIterator::usage = "CARuleIterator[k, r, fixedRules] creates a compiled iterator over CA rule numbers consistent with the given fixed pattern constraints. Use iter[\"Next\"] to yield successive rule numbers."
 
@@ -192,23 +196,23 @@ nativeBoundedSearch[minRule_Integer, maxRule_Integer, k_Integer, r_Integer,
     Select[Range[minRule, maxRule],
         Function[rule,
             With[{evo = CellularAutomaton[{rule, k, r}, init, steps]},
-                AllTrue[evo, nativeActiveWidth[#] <= maxWidth &]
+                AllTrue[evo, CellularAutomatonStateWidth[#] <= maxWidth &]
             ]
         ]
     ]
 
 (* Helper: active width = extent of nonzero cells *)
-nativeActiveWidth[state_List] :=
+CellularAutomatonStateWidth[state_List] :=
     With[{nz = Flatten @ Position[state, _?(# != 0 &), {1}, Heads -> False]},
         If[nz === {}, 0, Last[nz] - First[nz] + 1]
     ]
 
 (* Core: active widths for range of rules *)
-nativeActiveWidths[minRule_Integer, maxRule_Integer, k_Integer, r_Integer,
+CellularAutomatonStateWidths[minRule_Integer, maxRule_Integer, k_Integer, r_Integer,
                    init_List, steps_Integer] :=
     Table[
         With[{evo = CellularAutomaton[{rule, k, r}, init, steps]},
-            {Max[nativeActiveWidth /@ evo], nativeActiveWidth[Last[evo]]}
+            {Max[CellularAutomatonStateWidth /@ evo], CellularAutomatonStateWidth[Last[evo]]}
         ],
         {rule, minRule, maxRule}
     ]
@@ -222,9 +226,9 @@ nativeWidthRatioSearch[minRule_Integer, maxRule_Integer, k_Integer, r_Integer,
             AllTrue[initials,
                 Function[init,
                     With[{evo = CellularAutomaton[{rule, k, r}, init, steps]},
-                        AllTrue[evo, nativeActiveWidth[#] <= maxWidth &] &&
-                        With[{iw = nativeActiveWidth[init],
-                              fw = nativeActiveWidth[Last[evo]]},
+                        AllTrue[evo, CellularAutomatonStateWidth[#] <= maxWidth &] &&
+                        With[{iw = CellularAutomatonStateWidth[init],
+                              fw = CellularAutomatonStateWidth[Last[evo]]},
                             fw * ratioDen == iw * ratioNum
                         ]
                     ]
@@ -246,9 +250,9 @@ nativeFilterWidthRatio[rules_List, k_Integer, r_Integer,
             AllTrue[initials,
                 Function[init,
                     With[{evo = CellularAutomaton[{rule, k, r}, init, steps]},
-                        AllTrue[evo, nativeActiveWidth[#] <= maxWidth &] &&
-                        With[{iw = nativeActiveWidth[init],
-                              fw = nativeActiveWidth[Last[evo]]},
+                        AllTrue[evo, CellularAutomatonStateWidth[#] <= maxWidth &] &&
+                        With[{iw = CellularAutomatonStateWidth[init],
+                              fw = CellularAutomatonStateWidth[Last[evo]]},
                             fw * ratioDen == iw * ratioNum
                         ]
                     ]
@@ -263,7 +267,7 @@ nativeExactWidthSearch[minRule_Integer, maxRule_Integer, k_Integer, r_Integer,
     Select[Range[minRule, maxRule],
         Function[rule,
             AllTrue[initials,
-                nativeActiveWidth[Last @ CellularAutomaton[{rule, k, r}, #, steps]] == targetWidth &
+                CellularAutomatonStateWidth[Last @ CellularAutomaton[{rule, k, r}, #, steps]] == targetWidth &
             ]
         ]
     ]
@@ -595,13 +599,17 @@ Options[CellularAutomatonTest] = {Method -> Automatic};
 CellularAutomatonTest[{rule_Integer, k_Integer, r_Integer}, Rule[init_List, target_List], steps_Integer, OptionsPattern[]] :=
     caTestSingle[rule, k, r, init, target, steps]
 
+(* Single rulespec {rule, k, r} with multiple {init -> target, ...} *)
+CellularAutomatonTest[{rule_Integer, k_Integer, r_Integer}, pairs:{__Rule}, steps_Integer, OptionsPattern[]] :=
+    AllTrue[pairs, caTestSingle[rule, k, r, First[#], Last[#], steps] &]
+
 (* Elementary shorthand: bare rule number *)
-CellularAutomatonTest[rule_Integer, Rule[init_List, target_List], steps_Integer, OptionsPattern[]] :=
-    CellularAutomatonTest[{rule, 2, 1}, init -> target, steps]
+CellularAutomatonTest[rule_Integer, condition:(Rule[_List, _List] | {__Rule}), steps_Integer, OptionsPattern[]] :=
+    CellularAutomatonTest[{rule, 2, 1}, condition, steps]
 
 (* List of rulespecs {{r1, k1, s1}, ...} — filter to passing specs *)
-CellularAutomatonTest[specs : {{_Integer, _Integer, _Integer} ..}, Rule[init_List, target_List], steps_Integer, OptionsPattern[]] :=
-    Select[specs, CellularAutomatonTest[#, init -> target, steps] &]
+CellularAutomatonTest[specs : {{_Integer, _Integer, _Integer} ..}, condition:(Rule[_List, _List] | {__Rule}), steps_Integer, OptionsPattern[]] :=
+    Select[specs, CellularAutomatonTest[#, condition, steps] &]
 
 (* Empty candidate list — short-circuit *)
 CellularAutomatonTest[{}, Rule[_List, _List], _Integer, {_Integer, _Integer}, OptionsPattern[]] := {}
@@ -637,16 +645,20 @@ CellularAutomatonTest[rules : {__Integer}, Rule[init_List, target_List], steps_I
         ]
     ]
 
-(* Span -> list expansion *)
-CellularAutomatonTest[minRule_Integer ;; maxRule_Integer, Rule[init_List, target_List], steps_Integer, {k_Integer, r_Integer}, opts:OptionsPattern[]] :=
-    CellularAutomatonTest[Range[minRule, maxRule], init -> target, steps, {k, r}, opts]
+(* List of rules with multiple {init -> target, ...} — sequential sieve *)
+CellularAutomatonTest[rules : {__Integer}, pairs:{__Rule}, steps_Integer, {k_Integer, r_Integer}, opts:OptionsPattern[]] :=
+    Fold[CellularAutomatonTest[#1, #2, steps, {k, r}, opts] &, rules, pairs]
 
-CellularAutomatonTest[minRule_Integer ;; maxRule_Integer, Rule[init_List, target_List], steps_Integer, opts:OptionsPattern[]] :=
-    CellularAutomatonTest[Range[minRule, maxRule], init -> target, steps, {2, 1}, opts]
+(* Span -> list expansion *)
+CellularAutomatonTest[minRule_Integer ;; maxRule_Integer, condition:(Rule[_List, _List] | {__Rule}), steps_Integer, {k_Integer, r_Integer}, opts:OptionsPattern[]] :=
+    CellularAutomatonTest[Range[minRule, maxRule], condition, steps, {k, r}, opts]
+
+CellularAutomatonTest[minRule_Integer ;; maxRule_Integer, condition:(Rule[_List, _List] | {__Rule}), steps_Integer, opts:OptionsPattern[]] :=
+    CellularAutomatonTest[Range[minRule, maxRule], condition, steps, {2, 1}, opts]
 
 (* List of rule numbers, elementary default *)
-CellularAutomatonTest[rules : {__Integer}, Rule[init_List, target_List], steps_Integer, opts:OptionsPattern[]] :=
-    CellularAutomatonTest[rules, init -> target, steps, {2, 1}, opts]
+CellularAutomatonTest[rules : {__Integer}, condition:(Rule[_List, _List] | {__Rule}), steps_Integer, opts:OptionsPattern[]] :=
+    CellularAutomatonTest[rules, condition, steps, {2, 1}, opts]
 
 
 (* Legacy width-target overloads *)
@@ -742,12 +754,12 @@ Options[CellularAutomatonActiveWidths] = {Method -> Automatic};
 (* Native path *)
 CellularAutomatonActiveWidths[k_Integer, r_Integer, init_List, steps_Integer, OptionsPattern[]] /;
     isNativeQ[opts] :=
-    nativeActiveWidths[0, CellularAutomatonRuleCount[k, r] - 1, k, r, init, steps]
+    CellularAutomatonStateWidths[0, CellularAutomatonRuleCount[k, r] - 1, k, r, init, steps]
 
 CellularAutomatonActiveWidths[k_Integer, r_Integer, init_List, steps_Integer,
     minRule_Integer ;; maxRule_Integer, OptionsPattern[CellularAutomatonActiveWidths]] /;
     isNativeQ[opts] :=
-    nativeActiveWidths[minRule, maxRule, k, r, init, steps]
+    CellularAutomatonStateWidths[minRule, maxRule, k, r, init, steps]
 
 (* Rust path *)
 CellularAutomatonActiveWidths[k_Integer, r_Integer, init_List, steps_Integer, OptionsPattern[]] /;

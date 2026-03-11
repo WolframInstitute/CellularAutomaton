@@ -110,6 +110,16 @@ With[{widths = CellularAutomatonActiveWidths[CenterArray[{1}, 21], 10]},
 ];
 
 print[""];
+print["--- CellularAutomatonStateWidth ---"];
+
+test["StateWidth: empty list", CellularAutomatonStateWidth[{}], 0];
+test["StateWidth: all zeros", CellularAutomatonStateWidth[{0, 0, 0, 0}], 0];
+test["StateWidth: single one", CellularAutomatonStateWidth[{0, 1, 0}], 1];
+test["StateWidth: disconnected ones", CellularAutomatonStateWidth[{1, 0, 0, 1}], 4];
+test["StateWidth: wide blocks", CellularAutomatonStateWidth[{0, 1, 1, 0, 1, 0}], 4];
+
+
+print[""];
 print["--- CellularAutomatonWidthRatioSearch ---"];
 
 testQ["WidthRatio: finds rule 54240",
@@ -235,6 +245,16 @@ With[{init = {0,0,0,1,0,0,0},
         CellularAutomatonTest[28 ;; 32, init -> out30, 1], {30}];
     test["Test: span with {k,r}",
         CellularAutomatonTest[28 ;; 32, init -> out30, 1, {2, 1}], {30}];
+
+    (* Test: multiple pairs *)
+    With[{init2 = {0,0,1,0,0,0,0}, out30B = CellularAutomatonOutput[30, 2, 1, {0,0,1,0,0,0,0}, 1]},
+        test["Test: multiple pairs single rule",
+            CellularAutomatonTest[30, {init -> out30, init2 -> out30B}, 1], True];
+        test["Test: multiple pairs finds rule 30",
+            CellularAutomatonTest[28 ;; 32, {init -> out30, init2 -> out30B}, 1], {30}];
+        test["Test: multiple pairs excludes mismatch",
+            CellularAutomatonTest[90, {init -> out30, init2 -> out30B}, 1], False];
+    ];
 
     (* OutputTable: list *)
     test["OutputTable: {k,r} + list",
