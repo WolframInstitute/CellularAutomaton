@@ -541,7 +541,8 @@ pub fn try_test_rules(
     steps: usize,
     target: &CAState,
 ) -> Option<Vec<u8>> {
-    if r != 1 || k > 4 || init.cells.len() > 512 || candidates.is_empty() {
+    if r != 1 || k > 4 || init.cells.len() > 512 || candidates.is_empty()
+        || (candidates.len() as u64) < GPU_MIN_RULES {
         return None;
     }
     GPU_ENGINE.with(|engine| {
