@@ -709,25 +709,43 @@ pub fn find_exact_width_rules_wl(
 /// Uses in-place update (left neighbor already updated) — NOT standard parallel CA.
 /// Returns true if rule doubles width for init {1^(nin-1), 2} → {1^(2*nin)}.
 fn check_doubling_sequential(rule_number: u64, nin: usize) -> bool {
-    let table: Vec<u8> = (0..27)
-        .map(|i| ((rule_number / 3u64.pow(i as u32)) % 3) as u8)
-        .collect();
+    let table: [u8; 27] = {
+        let mut t = [0u8; 27];
+        for i in 0..27 {
+            t[i] = ((rule_number / 3u64.pow(i as u32)) % 3) as u8;
+        }
+        t
+    };
 
-    let max_steps = 50 * nin * nin; // generous convergence cap
-    let w = 2 * max_steps + 1;
+    // Tape sized generously: some doublers have wide transient states.
+    // Active-region tracking means we only iterate non-zero cells anyway.
+    let w = 20 * nin + 20;
     let mut a = vec![0u8; w];
 
     // Init: {1^(nin-1), 2} placed at center
-    let center = max_steps;
+    let center = w / 2;
     for i in 0..nin.saturating_sub(1) {
         a[center + i] = 1;
     }
     a[center + nin - 1] = 2;
 
+    // Active region: track leftmost/rightmost non-zero cells
+    let mut lo = center;
+    let mut hi = center + nin; // exclusive
+
+    // Convergence cap: generous but linear, not quadratic
+    let max_steps = 50 * nin + 200;
+
     for _t in 0..max_steps {
         let mut changed = false;
-        let mut b = a[0];
-        for i in 1..(w - 1) {
+
+        // Expand scan window: 1 cell padding on each side for neighbor access
+        let scan_lo = if lo > 1 { lo - 1 } else { 1 };
+        let scan_hi = if hi + 1 < w - 1 { hi + 1 } else { w - 2 };
+
+        // Sequential-scan update (in-place, left-to-right)
+        let mut b = a[scan_lo - 1];
+        for i in scan_lo..=scan_hi {
             let bp = a[i];
             let bx = table[(b as usize) * 9 + (bp as usize) * 3 + (a[i + 1] as usize)];
             a[i] = bx;
@@ -736,18 +754,45 @@ fn check_doubling_sequential(rule_number: u64, nin: usize) -> bool {
                 changed = true;
             }
         }
+
         if !changed {
-            // Converged — verify: left zeros, 2*nin ones, right zeros
-            for i in 1..center {
-                if a[i] != 0 { return false; }
+            // Converged — verify: 2*nin ones at center, zeros elsewhere
+            // Find actual non-zero region
+            let mut first_nz = w;
+            let mut last_nz = 0;
+            for i in 1..(w - 1) {
+                if a[i] != 0 {
+                    if first_nz == w { first_nz = i; }
+                    last_nz = i;
+                }
             }
-            for i in 0..(2 * nin) {
-                if a[center + i] != 1 { return false; }
-            }
-            for i in (center + 2 * nin)..w {
-                if a[i] != 0 { return false; }
+            if first_nz == w { return false; } // all zeros = not a doubler
+
+            let nz_len = last_nz - first_nz + 1;
+            if nz_len != 2 * nin { return false; }
+            for i in first_nz..=last_nz {
+                if a[i] != 1 { return false; }
             }
             return true;
+        }
+
+        // Update active region bounds
+        let mut new_lo = w;
+        let mut new_hi = 0;
+        for i in scan_lo..=scan_hi {
+            if a[i] != 0 {
+                if new_lo == w { new_lo = i; }
+                new_hi = i + 1;
+            }
+        }
+        if new_lo < w {
+            lo = new_lo;
+            hi = new_hi;
+        }
+
+        // If active region hit tape boundary, this rule needs more space than a doubler
+        if lo <= 1 || hi >= w - 1 {
+            return false;
         }
     }
     false
