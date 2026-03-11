@@ -48,10 +48,14 @@ impl CAState {
     }
 
     /// Convert the cell array to an integer (base-k, big-endian).
+    /// Returns u64::MAX if the value overflows.
     pub fn to_integer(&self) -> u64 {
         let mut result: u64 = 0;
         for &c in &self.cells {
-            result = result * self.k as u64 + c as u64;
+            match result.checked_mul(self.k as u64).and_then(|r| r.checked_add(c as u64)) {
+                Some(v) => result = v,
+                None => return u64::MAX,
+            }
         }
         result
     }

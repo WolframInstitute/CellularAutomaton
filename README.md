@@ -158,40 +158,41 @@ Standard CA searches (`CellularAutomatonSearch`, width/bounded) also use Metal G
 
 ## Benchmarks
 
-All benchmarks on Apple M3 Max. Rust/GPU is the default backend; Native uses the built-in `CellularAutomaton` function via `Method → "Native"`.
+All benchmarks on Apple M3 Max (16 cores). `Method → "Native"` uses the built-in `CellularAutomaton`. Run via `wolframscript -f Tests/benchmark.wl`.
 
-### Single Rule Operations
+### Single-Rule Operations
 
-| Function | Width | Steps | Rust | Native | Speedup |
-|---|---|---|---|---|---|
-| `CellularAutomatonOutput` | 11 | 5 | <0.1μs | 52μs | ~1000× |
-| `CellularAutomatonOutput` | 201 | 100 | <0.1μs | 92μs | ~1800× |
-| `CellularAutomatonOutput` | 501 | 100 | <0.1μs | 170μs | ~3400× |
-| `CellularAutomatonEvolution` | 51 | 50 | <0.1μs | 150μs | ~3000× |
-| `CellularAutomatonEvolution` | 201 | 50 | <0.1μs | 490μs | ~9800× |
+Both backends use compiled C; Rust path goes through WLL.
 
-### Bulk Search (k=2, r=1 — 256 rules)
+| Function | Width | Steps | Rust | Native |
+|---|---|---|---|---|
+| `CellularAutomatonOutput` | 21 | 10 | 5.2μs | 5.7μs |
+| `CellularAutomatonOutput` | 501 | 100 | 129μs | 131μs |
+| `CellularAutomatonEvolution` | 101 | 100 | 431μs | 438μs |
 
-| Function | Width | Steps | Rust | Native | Speedup |
-|---|---|---|---|---|---|
-| `CellularAutomatonSearch` (match) | 11 | 5 | <0.1μs | 540μs | ~5400× |
-| `CellularAutomatonSearch` (match) | 51 | 10 | 0.1μs | 860μs | ~8600× |
-| `CellularAutomatonSearch` (width) | 21 | 20 | <0.1μs | 700μs | ~7000× |
-| `CellularAutomatonTest` (256 rules) | 11 | 5 | 0.1μs | 330μs | ~3300× |
-| `CellularAutomatonTest` (256 rules) | 51 | 20 | 0.1μs | 1.4ms | ~14000× |
-| `CellularAutomatonOutputTable` | 51 | 50 | 0.1μs | 310μs | ~3100× |
-| `CellularAutomatonOutputTable` | 101 | 50 | 0.1μs | 540μs | ~5400× |
-| `CellularAutomatonActiveWidths` | 21 | 30 | 0.1μs | 380μs | ~3800× |
-| `CellularAutomatonBoundedWidthSearch` | 51 | 50 | 0.1μs | 180μs | ~1800× |
-| `CellularAutomatonWidthRatioSearch` | 21 | 10 | 0.1μs | 150μs | ~1500× |
+### Bulk Operations (k=2, r=1 — 256 rules)
+
+Rust uses Rayon parallelism across 16 cores. GPU is skipped for <10K rules due to Metal dispatch overhead.
+
+| Function | Width | Steps | Rust | Native |
+|---|---|---|---|---|
+| `CellularAutomatonSearch` (match) | 21 | 5 | 124μs | 105μs |
+| `CellularAutomatonSearch` (match) | 51 | 10 | 142μs | 127μs |
+| `CellularAutomatonSearch` (width) | 51 | 20 | 141μs | 155μs |
+| `CellularAutomatonTest` (256 rules) | 21 | 1 | 491μs | 364μs |
+| `CellularAutomatonTest` (256 rules) | 51 | 10 | 854μs | 780μs |
+| `CellularAutomatonOutputTable` | 51 | 50 | 252μs | 254μs |
+| `CellularAutomatonActiveWidths` | 51 | 50 | 418μs | 443μs |
+| `CellularAutomatonBoundedWidthSearch` | 51 | 50 | 108μs | 101μs |
+| `CellularAutomatonWidthRatioSearch` | 21 | 10 | 129μs | 121μs |
 
 ### NKS Doublers (k=3, r=1 — GPU-only, 3²⁰ search space)
 
-No native equivalent — the NKS doubler search uses sequential-scan update, not standard parallel CA.
+No native equivalent — uses GPU sequential-scan update (NKS `doubleasymmi.c`).
 
 | Tests (n) | Time | Doublers Found |
 |---|---|---|
 | 0–5 | 12s | 4341 |
 | 0–10 | 12s | 4280 |
-| 0–15 | 14s | 4278 |
-| 0–20 | 19s | 4278 |
+| 0–20 | 18s | 4278 |
+

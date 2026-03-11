@@ -10,6 +10,9 @@ use wolfram_library_link as wll;
 const SHADER_SRC: &str = include_str!("../shaders/ca_search.metal");
 const MAX_OUTPUT: u64 = 1_000_000;
 const BATCH_SIZE: u64 = 1_000_000_000; // 1B rules per GPU dispatch
+/// Minimum rule count for GPU dispatch. Below this, Rayon CPU is faster
+/// due to ~300μs fixed GPU overhead (buffer alloc, command encode, sync).
+const GPU_MIN_RULES: u64 = 10_000;
 
 /// Metal GPU search engine. Caches compiled pipelines for reuse.
 pub struct GpuSearchEngine {
@@ -476,6 +479,7 @@ pub fn try_find_exact_width_rules(
     steps: usize,
     target_width: usize,
 ) -> Option<Vec<u64>> {
+    if max_rule - min_rule + 1 < GPU_MIN_RULES { return None; }
     GPU_ENGINE.with(|engine| {
         engine.as_ref()?.find_exact_width_rules(min_rule, max_rule, k, r, init, steps, target_width)
     })
@@ -491,6 +495,7 @@ pub fn try_find_matching_rules(
     steps: usize,
     target: &CAState,
 ) -> Option<Vec<u64>> {
+    if max_rule - min_rule + 1 < GPU_MIN_RULES { return None; }
     GPU_ENGINE.with(|engine| {
         engine.as_ref()?.find_matching_rules(min_rule, max_rule, k, r, init, steps, target)
     })
@@ -506,6 +511,7 @@ pub fn try_find_bounded_width_rules(
     steps: usize,
     max_width: usize,
 ) -> Option<Vec<u64>> {
+    if max_rule - min_rule + 1 < GPU_MIN_RULES { return None; }
     GPU_ENGINE.with(|engine| {
         engine.as_ref()?.find_bounded_width_rules(min_rule, max_rule, k, r, init, steps, max_width)
     })

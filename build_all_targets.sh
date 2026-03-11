@@ -16,12 +16,22 @@ TARGETS=(
 echo "Building ca_search for all targets..."
 echo
 
+CURRENT_ARCH=$(uname -m)
+
 for entry in "${TARGETS[@]}"; do
     system_id="${entry%%:*}"
     target="${entry##*:}"
     echo "=== Building for $system_id ($target) ==="
     
-    if cargo build --release --target "$target"; then
+    # Use target-cpu=native for local architecture builds
+    BUILD_RUSTFLAGS=""
+    if [[ ("$CURRENT_ARCH" == "arm64" && "$target" == "aarch64-apple-darwin") || \
+          ("$CURRENT_ARCH" == "x86_64" && "$target" == "x86_64-apple-darwin") ]]; then
+        BUILD_RUSTFLAGS="-C target-cpu=native"
+        echo "  (using target-cpu=native)"
+    fi
+
+    if RUSTFLAGS="$BUILD_RUSTFLAGS" cargo build --release --target "$target"; then
         echo "✓ $system_id build succeeded"
     else
         echo "✗ $system_id build failed"

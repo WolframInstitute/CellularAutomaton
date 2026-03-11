@@ -23,13 +23,12 @@ usStr[us_] := Which[
     True, StringPadLeft["<0.1us", 10]
 ]
 
-(* Time N iterations — assign result to prevent caching *)
+(* Time N iterations — Block scope prevents WL evaluator caching *)
 SetAttributes[timeIt, HoldFirst];
-timeIt[expr_, n_:50] := Module[{r, t},
+timeIt[expr_, n_:50] := Module[{t},
+    Block[{res}, res = expr]; (* warm up *)
     ClearSystemCache[];
-    r = expr; (* warm up *)
-    ClearSystemCache[];
-    t = First @ AbsoluteTiming[Do[r = expr, n]];
+    t = First @ AbsoluteTiming[Do[Block[{res}, res = expr], n]];
     1000000. * t / n
 ]
 
