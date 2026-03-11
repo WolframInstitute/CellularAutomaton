@@ -453,8 +453,12 @@ fn na_to_cells(na: &NumericArray<i32>) -> Vec<u8> {
 }
 
 /// Helper: create a NumericArray<i64> from a Vec<u64>.
+/// Empty results use a 1-element [-1] sentinel (WLL can't allocate 0-element arrays).
 #[inline]
 fn vec_u64_to_na(v: Vec<u64>) -> NumericArray<i64> {
+    if v.is_empty() {
+        return NumericArray::from_slice(&[-1i64]);
+    }
     let mut out = UninitNumericArray::<i64>::from_dimensions(&[v.len()]);
     for (src, dst) in v.iter().zip(out.as_slice_mut()) {
         dst.write(*src as i64);
@@ -465,6 +469,9 @@ fn vec_u64_to_na(v: Vec<u64>) -> NumericArray<i64> {
 /// Helper: create a NumericArray<i32> from a Vec<u8>.
 #[inline]
 fn vec_u8_to_na_i32(v: Vec<u8>) -> NumericArray<i32> {
+    if v.is_empty() {
+        return NumericArray::from_slice(&[-1i32]);
+    }
     let mut out = UninitNumericArray::<i32>::from_dimensions(&[v.len()]);
     for (src, dst) in v.iter().zip(out.as_slice_mut()) {
         dst.write(*src as i32);

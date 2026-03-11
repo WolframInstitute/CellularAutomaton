@@ -116,8 +116,8 @@ SearchFreeRust := functions["search_free_wl"]
 toNA32[list_List] := NumericArray[list, "Integer32"]
 toNA64[list_List] := NumericArray[list, "Integer64"]
 
-(* Helper: convert returned NumericArray back to WL list *)
-fromNA[na_] := Normal[na]
+(* Helper: convert returned NumericArray back to WL list, filtering empty-array sentinel *)
+fromNA[na_] := DeleteCases[Normal[na], -1]
 
 (* Legacy helper for BigInt string paths and random_sieve_wl (still use DataStore) *)
 toDS[list_List] := Developer`DataStore @@ list
