@@ -56,6 +56,7 @@ pub fn ca_output_table_parallel(
     (min_rule..=max_rule)
         .into_par_iter()
         .map(|rule_number| {
+            if wll::aborted() { return 0; }
             let ca = CellularAutomaton::from_rule_number(rule_number, k, r);
             ca.evolve_final(&initial, steps).to_integer()
         })
@@ -113,6 +114,7 @@ pub fn ca_evolution_table_parallel(
     (min_rule..=max_rule)
         .into_par_iter()
         .map(|rule_number| {
+            if wll::aborted() { return vec![]; }
             let ca = CellularAutomaton::from_rule_number(rule_number, k, r);
             let history = ca.evolve(&initial, steps);
             history.into_iter().flat_map(|s| s.cells).collect()
@@ -246,6 +248,7 @@ pub fn find_bounded_width_rules(
         return (0..count)
             .into_par_iter()
             .filter_map(|i| {
+                if wll::aborted() { return None; }
                 let rule_number = start + i * 3;
 
                 // Decode rule table with literal /3 %3
@@ -313,6 +316,7 @@ pub fn find_bounded_width_rules(
     (min_rule..=max_rule)
         .into_par_iter()
         .filter(|&rule_number| {
+            if wll::aborted() { return false; }
             if rule_number % k64 != 0 {
                 return false;
             }
@@ -356,6 +360,7 @@ pub fn max_active_widths_parallel(
     (min_rule..=max_rule)
         .into_par_iter()
         .flat_map(|rule_number| {
+            if wll::aborted() { return vec![0, 0]; }
             let ca = CellularAutomaton::from_rule_number(rule_number, k, r);
             let (max_w, fin_w) = ca.max_active_width(&initial, steps);
             vec![max_w as u64, fin_w as u64]
@@ -385,6 +390,7 @@ pub fn find_width_ratio_rules(
     (min_rule..=max_rule)
         .into_par_iter()
         .filter(|&rule_number| {
+            if wll::aborted() { return false; }
             let ca = CellularAutomaton::from_rule_number(rule_number, k, r);
             initials.iter().zip(input_widths.iter()).all(|(init, &iw)| {
                 // Quick bounded-width check first (early exit)
@@ -426,6 +432,7 @@ pub fn find_exact_width_rules(
     (min_rule..=max_rule)
         .into_par_iter()
         .filter(|&rule_number| {
+            if wll::aborted() { return false; }
             let ca = CellularAutomaton::from_rule_number(rule_number, k, r);
             initials.iter().all(|init| {
                 let final_state = ca.evolve_final(init, steps);
@@ -683,6 +690,7 @@ pub fn find_doublers_k3r1(num_tests: u32) -> Vec<u64> {
     (0..=max_rule)
         .into_par_iter()
         .filter(|&rule| {
+            if wll::aborted() { return false; }
             if rule % 3 != 0 { return false; }
             (1..=num_tests as usize).all(|nin| check_doubling_sequential(rule, nin))
         })
@@ -718,6 +726,7 @@ pub fn filter_doublers_k3r1_range(candidates: &[u64], start_test: u32, end_test:
                 // GPU unavailable, use CPU for this range
                 current = current.par_iter().copied()
                     .filter(|&rule| {
+                        if wll::aborted() { return false; }
                         (start_test as usize..=gpu_end as usize)
                             .all(|nin| check_doubling_sequential(rule, nin))
                     })
@@ -728,6 +737,7 @@ pub fn filter_doublers_k3r1_range(candidates: &[u64], start_test: u32, end_test:
         {
             current = current.par_iter().copied()
                 .filter(|&rule| {
+                    if wll::aborted() { return false; }
                     (start_test as usize..=gpu_end as usize)
                         .all(|nin| check_doubling_sequential(rule, nin))
                 })
@@ -740,6 +750,7 @@ pub fn filter_doublers_k3r1_range(candidates: &[u64], start_test: u32, end_test:
         let cpu_start = start_test.max(13);
         current = current.par_iter().copied()
             .filter(|&rule| {
+                if wll::aborted() { return false; }
                 (cpu_start as usize..=end_test as usize)
                     .all(|nin| check_doubling_sequential(rule, nin))
             })
@@ -785,6 +796,7 @@ pub fn test_rules(
     candidates
         .par_iter()
         .map(|&rule_number| {
+            if wll::aborted() { return 0u8; }
             let ca = CellularAutomaton::from_rule_number(rule_number, k, r);
             let final_state = ca.evolve_final(initial, steps);
             if final_state.cells == target { 1u8 } else { 0u8 }
@@ -830,6 +842,7 @@ pub fn filter_width_ratio_rules(
         .par_iter()
         .copied()
         .filter(|&rule_number| {
+            if wll::aborted() { return false; }
             let ca = CellularAutomaton::from_rule_number(rule_number, k, r);
             initials.iter().zip(input_widths.iter()).all(|(init, &iw)| {
                 if !ca.is_bounded_width(init, steps, max_width) {
