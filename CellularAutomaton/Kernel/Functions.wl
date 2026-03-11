@@ -99,6 +99,7 @@ FindExactWidthRulesRust := functions["find_exact_width_rules_wl"]
 FindDoublersK3R1Rust := functions["find_doublers_k3r1_wl"]
 FilterWidthRatioRulesRust := functions["filter_width_ratio_rules_wl"]
 FilterDoublersK3R1Rust := functions["filter_doublers_k3r1_wl"]
+FilterDoublersK3R1RangeRust := functions["filter_doublers_k3r1_range_wl"]
 TestRulesRust := functions["test_rules_wl"]
 RunCAFinalBigIntRust := functions["run_ca_final_bigint_wl"]
 RunCABigIntRust := functions["run_ca_bigint_wl"]
@@ -239,7 +240,8 @@ CellularAutomatonSearch[{3, 1}, pairs:{__Rule}, steps_Integer] /; isDoublerPatte
         With[{gpuCandidates = fromDS @ FindDoublersK3R1Rust[Min[maxN, 12]]},
             If[maxN <= 12,
                 gpuCandidates,
-                fromDS @ FilterDoublersK3R1Rust[toDS[gpuCandidates], maxN]
+                (* GPU searched 1..12; refine with tests 13..maxN only *)
+                fromDS @ FilterDoublersK3R1RangeRust[toDS[gpuCandidates], 13, maxN]
             ]
         ]
     ]
@@ -476,8 +478,8 @@ CellularAutomatonWidthRatioSearch[inits:{__List}, steps_Integer, 2, {3, 1}] /; A
         With[{gpuCandidates = fromDS @ FindDoublersK3R1Rust[Min[maxN, 12]]},
             If[maxN <= 12,
                 gpuCandidates,
-                (* GPU only tested up to 12; refine with full range on CPU *)
-                fromDS @ FilterDoublersK3R1Rust[toDS[gpuCandidates], maxN]
+                (* GPU searched 1..12; refine with tests 13..maxN only *)
+                fromDS @ FilterDoublersK3R1RangeRust[toDS[gpuCandidates], 13, maxN]
             ]
         ]
     ]
@@ -490,7 +492,7 @@ CellularAutomatonWidthRatioSearch[inits:{__List}, steps_Integer, 2, {3, 1}] :=
 
 (* Specialized sieve: ratio=2, k=3, r=1, NKS patterns *)
 CellularAutomatonWidthRatioSearch[inits:{__List}, steps_Integer, 2, {3, 1}, rules_List] /; AllTrue[inits, isNKSDoublerPattern] :=
-    fromDS @ FilterDoublersK3R1Rust[toDS[rules], Max[Length /@ inits]]
+    fromDS @ FilterDoublersK3R1RangeRust[toDS[rules], 1, Max[Length /@ inits]]
 
 (* Specialized sieve: ratio=2, k=3, r=1, non-NKS patterns — use general filter *)
 CellularAutomatonWidthRatioSearch[inits:{__List}, steps_Integer, 2, {3, 1}, rules_List] :=

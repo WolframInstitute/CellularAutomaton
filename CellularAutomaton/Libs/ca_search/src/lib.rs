@@ -697,13 +697,56 @@ pub fn find_doublers_k3r1_wl(num_tests: u64) -> Vec<u64> {
 
 /// Filter candidate rules using NKS sequential-scan doubler check.
 pub fn filter_doublers_k3r1(candidates: &[u64], num_tests: u32) -> Vec<u64> {
-    candidates
-        .par_iter()
-        .copied()
-        .filter(|&rule| {
-            (1..=num_tests as usize).all(|nin| check_doubling_sequential(rule, nin))
-        })
-        .collect()
+    filter_doublers_k3r1_range(candidates, 1, num_tests)
+}
+
+/// Filter candidate rules testing only constraints start_test..=end_test.
+/// Uses GPU refine for tests ≤ 12 (tape limit), CPU for larger tests.
+pub fn filter_doublers_k3r1_range(candidates: &[u64], start_test: u32, end_test: u32) -> Vec<u64> {
+    if candidates.is_empty() || start_test > end_test { return vec![]; }
+    
+    let mut current = candidates.to_vec();
+    
+    // GPU refine for tests that fit in the 1201-cell tape (≤ 12)
+    let gpu_end = end_test.min(12);
+    if start_test <= gpu_end {
+        #[cfg(all(target_os = "macos", feature = "gpu"))]
+        {
+            if let Some(results) = gpu::try_refine_doublers(&current, start_test, gpu_end) {
+                current = results;
+            } else {
+                // GPU unavailable, use CPU for this range
+                current = current.par_iter().copied()
+                    .filter(|&rule| {
+                        (start_test as usize..=gpu_end as usize)
+                            .all(|nin| check_doubling_sequential(rule, nin))
+                    })
+                    .collect();
+            }
+        }
+        #[cfg(not(all(target_os = "macos", feature = "gpu")))]
+        {
+            current = current.par_iter().copied()
+                .filter(|&rule| {
+                    (start_test as usize..=gpu_end as usize)
+                        .all(|nin| check_doubling_sequential(rule, nin))
+                })
+                .collect();
+        }
+    }
+    
+    // CPU for tests > 12 (tape too large for GPU)
+    if end_test > 12 {
+        let cpu_start = start_test.max(13);
+        current = current.par_iter().copied()
+            .filter(|&rule| {
+                (cpu_start as usize..=end_test as usize)
+                    .all(|nin| check_doubling_sequential(rule, nin))
+            })
+            .collect();
+    }
+    
+    current
 }
 
 /// WLL wrapper for filter_doublers_k3r1.
@@ -711,6 +754,13 @@ pub fn filter_doublers_k3r1(candidates: &[u64], num_tests: u32) -> Vec<u64> {
 pub fn filter_doublers_k3r1_wl(candidate_rules: Vec<i64>, num_tests: u64) -> Vec<u64> {
     let candidates: Vec<u64> = candidate_rules.iter().map(|&r| r as u64).collect();
     filter_doublers_k3r1(&candidates, num_tests as u32)
+}
+
+/// WLL wrapper for filter_doublers_k3r1_range.
+#[wll::export]
+pub fn filter_doublers_k3r1_range_wl(candidate_rules: Vec<i64>, start_test: u64, end_test: u64) -> Vec<u64> {
+    let candidates: Vec<u64> = candidate_rules.iter().map(|&r| r as u64).collect();
+    filter_doublers_k3r1_range(&candidates, start_test as u32, end_test as u32)
 }
 
 /// Test a list of candidate rules: which ones produce target from init after steps?
