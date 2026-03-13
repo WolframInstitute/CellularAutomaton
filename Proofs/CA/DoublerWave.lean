@@ -10,7 +10,7 @@ def S_pre1 (m : Nat) (p : Int) : Tape := fun i =>
 def S_pre2 (m : Nat) (p : Int) : Tape := fun i =>
   if i = p then 2 else if i = p + 1 then 2 else if i = p + 2 then 0 else if p + 2 < i ∧ i ≤ p + 2 + ↑m then 1 else 0
 
-theorem pre_tail_step1 (m : Nat) (hm : m ≥ 1) (p : Int) :
+theorem pre_tail_step1 (m : Nat) (hm : m ≥ 2) (p : Int) :
     step (S_pre1 m p) = S21 (m + 1) p := by
   funext i
   by_cases h1 : i ≤ p - 2
@@ -31,7 +31,7 @@ theorem pre_tail_step1 (m : Nat) (hm : m ≥ 1) (p : Int) :
                 · rw [h8]; dsimp [step, S_pre1, S21]; repeat (split <;> try omega); try rfl
                 · dsimp [step, S_pre1, S21]; repeat (split <;> try omega); try rfl
 
-theorem pre_tail_step2 (m : Nat) (hm : m ≥ 1) (p : Int) :
+theorem pre_tail_step2 (m : Nat) (hm : m ≥ 2) (p : Int) :
     step (S_pre2 m p) = S21 (m + 1) p := by
   funext i
   by_cases h1 : i ≤ p - 2

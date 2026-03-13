@@ -12,4 +12,4 @@ require OneSidedTM from "../../TuringMachineSearch/Proofs"
 @[default_target]
 lean_lib «CA» where
   srcDir := "."
-  roots := #[`CA.ECA, `CA.Glider, `CA.Doubler, `CA.TMToTag, `CA.Universality, `Code20.TotalisticCA]
+  roots := #[`CA.Sieve, `CA.ECA, `CA.Glider, `CA.Doubler, `CA.DoublerTrans, `CA.DoublerWave, `CA.DoublerFull, `CA.TMToTag, `CA.Universality, `Code20.TotalisticCA]
