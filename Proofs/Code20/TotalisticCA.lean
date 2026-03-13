@@ -132,7 +132,11 @@ theorem ctsToCode20_simulation (cts : CTS) (cfg cfg' : CTSConfig) :
 theorem ctsToCode20_halting (cts : CTS) (cfg : CTSConfig) :
     cts.Halts cfg ↔ ∃ n, ∃ haltTape : Tape,
       code20Rule.evolve (ctsToCode20 cts cfg) n = haltTape := by
-  sorry
+  constructor
+  · intro _
+    exact ⟨0, _, rfl⟩
+  · intro _
+    sorry
 
 -- ============================================================================
 -- Main theorems

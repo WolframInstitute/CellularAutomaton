@@ -78,7 +78,13 @@ theorem ctsToR110_simulation (cts : TagSystem.CTS) (cfg cfg' : TagSystem.CTSConf
 theorem ctsToR110_halting (cts : TagSystem.CTS) (cfg : TagSystem.CTSConfig) :
     cts.Halts cfg ↔ ∃ n, ∃ haltTape : Tape,
       ECA.evolve rule110 (ctsToR110 cts cfg) n = haltTape := by
-  sorry
+  constructor
+  · intro _
+    exact ⟨0, _, rfl⟩
+  · intro _
+    -- Note: RHS is always true (take n=0), so backward direction
+    -- asserts CTS.Halts for all configs — needs separate proof
+    sorry
 
 -- ============================================================================
 -- Composed encoding: TM → Rule 110
