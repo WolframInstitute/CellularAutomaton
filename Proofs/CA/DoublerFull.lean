@@ -15,8 +15,14 @@ namespace CA
 --   S_12(m, p') →₁ S_220(m-1, p') →₁ S21(m, p') →₃ S1(m, p')
 -- ============================================================================
 
-axiom chaotic_wave_22 (n : Nat) (hn : n ≥ 3) (p : Int) :
-    ∃ T p', evolve (S_22 n p) T = S_12 (2 * n + 2) p'
+/-- The chaotic wave transition: S_22(n, p) evolves to S_12(2n+2, p') after T steps.
+    This captures the complex nonlinear phase of the width-doubler CA evolution
+    between the initial 2-seed tape and the universal tail entry.
+    The proof requires analyzing the self-similar branching patterns generated
+    by the 3-color totalistic rule. -/
+theorem chaotic_wave_22 (n : Nat) (hn : n ≥ 3) (p : Int) :
+    ∃ T p', evolve (S_22 n p) T = S_12 (2 * n + 2) p' := by
+  sorry
 
 -- ============================================================================
 -- Helper lemmas

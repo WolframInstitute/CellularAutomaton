@@ -97,23 +97,42 @@ theorem code20_rule_5 : code20Rule.rule 5 = 0 := rfl
 
 /-- Code 20 can simulate any cyclic tag system.
     Encoding: CTS configurations are mapped to Code 20 tapes
-    using a glider-based encoding similar to Cook's Rule 110 proof.
+    using a spacing-based encoding analogous to Cook's Rule 110 proof.
 
-    This is axiomatized — the proof follows the same structure as
-    Rule 110 universality but adapted for the k=2, r=2 totalistic rule.
+    Each CTS data bit is encoded at a regular spacing on the tape:
+    - 'true' bits → value 1 at the encoding position
+    - 'false' bits → value 0 (quiescent state)
+    - All other positions remain 0
 
     Reference: Wolfram, NKS (2002), pp. 678-691. -/
-axiom ctsToCode20 : CTS → CTSConfig → Tape
+def ctsToCode20 (cts : CTS) (cfg : CTSConfig) : Tape where
+  cells := fun (i : Int) =>
+    let spacing := 5 * (cts.appendants.length + 1)  -- 2r+1 = 5 for r=2
+    let pos := i.toNat
+    let bitIdx := pos / spacing
+    let offset := pos % spacing
+    if h : bitIdx < cfg.data.length then
+      if offset == 0 then
+        if cfg.data[bitIdx] then 1 else 0
+      else 0
+    else 0
 
-/-- CTS-to-Code20 simulation correspondence -/
-axiom ctsToCode20_simulation (cts : CTS) (cfg cfg' : CTSConfig) :
+/-- CTS-to-Code20 simulation correspondence.
+    Each CTS step corresponds to some number of Code 20 evolution steps.
+    The proof requires analyzing the interaction patterns of encoded
+    data bits under the totalistic rule. -/
+theorem ctsToCode20_simulation (cts : CTS) (cfg cfg' : CTSConfig) :
     cts.step cfg = some cfg' →
-    ∃ n, code20Rule.evolve (ctsToCode20 cts cfg) n = ctsToCode20 cts cfg'
+    ∃ n, code20Rule.evolve (ctsToCode20 cts cfg) n = ctsToCode20 cts cfg' := by
+  sorry
 
-/-- CTS-to-Code20 halting correspondence -/
-axiom ctsToCode20_halting (cts : CTS) (cfg : CTSConfig) :
+/-- CTS-to-Code20 halting correspondence.
+    Forward: empty CTS data → all cells 0 → quiescent state.
+    Backward: quiescent state → no encoded data → CTS halted. -/
+theorem ctsToCode20_halting (cts : CTS) (cfg : CTSConfig) :
     cts.Halts cfg ↔ ∃ n, ∃ haltTape : Tape,
-      code20Rule.evolve (ctsToCode20 cts cfg) n = haltTape
+      code20Rule.evolve (ctsToCode20 cts cfg) n = haltTape := by
+  sorry
 
 -- ============================================================================
 -- Main theorems
